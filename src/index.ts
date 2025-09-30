@@ -42,7 +42,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         {
           role: "system",
           content:
-            "You are a nutritionist. Return a JSON array of food ingredients seen on the plate.",
+            "You are a nutritionist. Return a JSON object with an 'ingredients' array listing food items seen on the plate.",
         },
         {
           role: "user",
@@ -91,8 +91,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
           carbs: food.nf_total_carbohydrate,
           fat: food.nf_total_fat,
         });
-      } catch (e) {
-        console.error("Nutritionix error:", e.message);
+      } catch (e: any) {
+        console.error("Nutritionix error:", e?.message || e);
       }
     }
 
@@ -109,8 +109,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
     );
 
     res.json({ items, totals });
-  } catch (err) {
-    console.error(err);
+  } catch (err: any) {
+    console.error(err?.message || err);
     res.status(500).json({ error: "Failed to analyze plate" });
   }
 });
