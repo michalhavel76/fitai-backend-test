@@ -27,7 +27,7 @@ const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 app.get("/ping", (req, res) => res.send("pong"));
 app.get("/hello", (req, res) => res.send("Hello from FitAI backend!"));
 
-// 📸 hlavní endpoint
+// 📸 hlavní endpoint – analýza fotky
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -115,6 +115,77 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   }
 });
 
+// 🔍 SEARCH FOOD – rychlé návrhy názvů
+app.get("/search-food", async (req, res) => {
+  const query = req.query.query as string;
+  if (!query) {
+    return res.status(400).json({ error: "Missing query" });
+  }
+
+  try {
+    const apiRes = await axios.get(
+      "https://trackapi.nutritionix.com/v2/search/instant",
+      {
+        params: { query },
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!,
+        },
+      }
+    );
+
+    const items = (apiRes.data.common || []).slice(0, 5).map((i: any) => ({
+      name: i.food_name,
+    }));
+
+    res.json({ items });
+  } catch (err: any) {
+    console.error("Search-food error:", err?.message || err);
+    res.status(500).json({ error: "Failed to search food" });
+  }
+});
+
+// 📊 GET FOOD DETAILS – přesná makra pro vybraný název
+app.get("/get-food-details", async (req, res) => {
+  const name = req.query.name as string;
+  if (!name) {
+    return res.status(400).json({ error: "Missing food name" });
+  }
+
+  try {
+    const apiRes = await axios.post(
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
+      { query: name },
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!apiRes.data.foods || apiRes.data.foods.length === 0) {
+      return res.status(404).json({ error: "No details found" });
+    }
+
+    const f = apiRes.data.foods[0];
+    const item = {
+      name: f.food_name,
+      calories: Math.round(f.nf_calories || 0),
+      protein: Math.round(f.nf_protein || 0),
+      carbs: Math.round(f.nf_total_carbohydrate || 0),
+      fat: Math.round(f.nf_total_fat || 0),
+    };
+
+    res.json(item);
+  } catch (err: any) {
+    console.error("Get-food-details error:", err?.message || err);
+    res.status(500).json({ error: "Failed to get food details" });
+  }
+});
+
+// 🚀 Start server
 app.listen(port, () => {
   console.log(`✅ FitAI backend running at http://localhost:${port}`);
 });
