@@ -114,25 +114,37 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku
+// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku (one-liner, max 12 slov)
 app.post("/funny-message", upload.single("image"), async (req, res) => {
-  console.log("✅ /funny-message endpoint triggered"); // debug log
   try {
+    const nickname = req.body.nickname || ""; // volitelně od uživatele
+
     if (!req.file) return res.json({ message: "Analyzuji jídlo..." });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
+
     const funnyResp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content:
-            "Jsi vtipný kámoš, co komentuje jídlo. Odpověz vždy jen jednou free a krátkou hláškou v češtině.",
+          content: `
+          Jsi osobní fitness coach a kámoš.
+          Tvoje hlášky musí být:
+          - vždy česky,
+          - maximálně 1 krátká věta (do 12 slov),
+          - sportovní, motivační nebo free-life vibe,
+          - žádné metafory, žádné básnění, žádné dlouhé popisy,
+          - chval zdravé jídlo ("super fuel na běhání"),
+          - pokárej nezdravé ("burger = 5 km běhu navíc"),
+          - připomeň, že život je free a občasný cheat meal je ok.
+          Používej občas jméno/přezdívku (${nickname}), pokud je k dispozici.
+          `,
         },
         {
           role: "user",
           content: [
-            { type: "text", text: "Co ty na to jídlo? Řekni mi to free a vtipně!" },
+            { type: "text", text: "Co ty na to jídlo? Řekni mi to free, krátce a sportovně!" },
             {
               type: "image_url",
               image_url: { url: `data:image/jpeg;base64,${b64}` },
@@ -140,7 +152,7 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
           ],
         },
       ],
-      max_tokens: 50,
+      max_tokens: 30,
     });
 
     const funnyMessage =
