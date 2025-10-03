@@ -117,6 +117,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 // 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku
 app.post("/funny-message", upload.single("image"), async (req, res) => {
   try {
+    const nickname = req.body.nickname || "";
+
     if (!req.file) return res.json({ message: "Analyzuji jídlo..." });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
@@ -126,19 +128,24 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
         {
           role: "system",
           content: `
-          Jsi osobní AI coach a kámoš. 
-  Odpovídej vždy česky, přímo uživateli (v druhé osobě).
-  Styl: sportovní, motivační, lehce free-life.
-  Používej max 1 krátkou až středně dlouhou větu (max 15 slov).
-  Žádné pohádkové metafory ani přehnané popisy (žádní superhrdinové, party apod.).
-  Můžeš být chválící, hecující nebo připomenout balanc (sport vs užít si život).
-  Emojis používej občas, ale přirozeně.
+          Jsi osobní AI coach a kámoš.
+          Odpovídej:
+          - vždy česky,
+          - pouze 1 krátká věta (max 20 slov),
+          - vždy ve 2. osobě (ty),
+          - sportovní, motivační nebo free-life vibe,
+          - žádné opakování stejných frází,
+          - používej různorodé emoce a emoji (max 2),
+          - pokud bys překročil 20 slov, okamžitě větu ukonči.
           `,
         },
         {
           role: "user",
           content: [
-            { type: "text", text: "Co ty na to jídlo? Řekni mi to free a vtipně!" },
+            {
+              type: "text",
+              text: `Co říkáš na tohle jídlo pro uživatele ${nickname}?`,
+            },
             {
               type: "image_url",
               image_url: { url: `data:image/jpeg;base64,${b64}` },
@@ -146,7 +153,9 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
           ],
         },
       ],
-      max_tokens: 60,
+      max_tokens: 40,
+      temperature: 0.9,
+      top_p: 0.9,
     });
 
     const funnyMessage =
@@ -157,67 +166,6 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   } catch (err: any) {
     console.error("Funny-message error:", err?.message || err);
     res.json({ message: "Analyzuji jídlo..." }); // fallback
-  }
-});
-
-// 🔎 3) SEARCH-FOOD
-app.get("/search-food", async (req, res) => {
-  try {
-    const query = req.query.query as string;
-    if (!query) return res.json({ items: [] });
-
-    const nutriResp = await axios.post(
-      "https://trackapi.nutritionix.com/v2/natural/nutrients",
-      { query },
-      {
-        headers: {
-          "x-app-id": NUTRITIONIX_APP_ID!,
-          "x-app-key": NUTRITIONIX_API_KEY!,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const items = nutriResp.data.foods.map((f: any) => ({
-      name: f.food_name,
-    }));
-
-    res.json({ items });
-  } catch (err: any) {
-    console.error("Search-food error:", err?.message || err);
-    res.json({ items: [] });
-  }
-});
-
-// 📋 4) GET-FOOD-DETAILS
-app.get("/get-food-details", async (req, res) => {
-  try {
-    const name = req.query.name as string;
-    if (!name) return res.json({});
-
-    const nutriResp = await axios.post(
-      "https://trackapi.nutritionix.com/v2/natural/nutrients",
-      { query: name },
-      {
-        headers: {
-          "x-app-id": NUTRITIONIX_APP_ID!,
-          "x-app-key": NUTRITIONIX_API_KEY!,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const food = nutriResp.data.foods[0];
-    res.json({
-      name: food.food_name,
-      calories: food.nf_calories,
-      protein: food.nf_protein,
-      carbs: food.nf_total_carbohydrate,
-      fat: food.nf_total_fat,
-    });
-  } catch (err: any) {
-    console.error("Get-food-details error:", err?.message || err);
-    res.json({});
   }
 });
 
