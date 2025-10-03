@@ -20,7 +20,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ✅ Nutritionix keys z .env
+// ✅ Nutritionix keys
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
@@ -114,19 +114,16 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku
+// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku + jméno uživatele
 app.post("/funny-message", upload.single("image"), async (req, res) => {
   try {
-    const nickname = req.body.nickname || ""; // budoucí login → jméno/přezdívka uživatele
+    const userName = req.body.userName || "kamaráde";
 
     if (!req.file) return res.json({ message: "Analyzuji jídlo..." });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
-
     const funnyResp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.9,   // vyšší kreativita
-      top_p: 0.95,        // více variace
       messages: [
         {
           role: "system",
@@ -140,18 +137,20 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
           - žádné opakování stejných frází,
           - používej různorodé emoce a emoji (ale ne pořád stejné),
           - buď kreativní a měň styl.
-          Občas oslov uživatele (${nickname}), pokud je k dispozici.
           `,
         },
         {
           role: "user",
           content: [
-            { type: "text", text: "Co ty na to jídlo? Řekni to free, sportovně a motivuj!" },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+            { type: "text", text: `Co říkáš na tohle jídlo pro ${userName}?` },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+            },
           ],
         },
       ],
-      max_tokens: 80, // dost prostoru pro 2–3 věty
+      max_tokens: 60,
     });
 
     const funnyMessage =
@@ -165,6 +164,67 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   }
 });
 
+// 🔎 3) SEARCH endpoint – vyhledávání jídel
+app.get("/search-food", async (req, res) => {
+  try {
+    const query = req.query.query as string;
+    if (!query) return res.json({ items: [] });
+
+    const searchResp = await axios.get(
+      `https://trackapi.nutritionix.com/v2/search/instant?query=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!,
+        },
+      }
+    );
+
+    const items =
+      searchResp.data.common.map((f: any) => ({
+        name: f.food_name,
+      })) || [];
+
+    res.json({ items });
+  } catch (err: any) {
+    console.error("Search error:", err.message || err);
+    res.json({ items: [] });
+  }
+});
+
+// 📊 4) DETAILS endpoint – detailní makra
+app.get("/get-food-details", async (req, res) => {
+  try {
+    const name = req.query.name as string;
+    if (!name) return res.status(400).json({ error: "Missing name" });
+
+    const nutriResp = await axios.post(
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
+      { query: name },
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const food = nutriResp.data.foods[0];
+    res.json({
+      name: food.food_name,
+      calories: food.nf_calories,
+      protein: food.nf_protein,
+      carbs: food.nf_total_carbohydrate,
+      fat: food.nf_total_fat,
+    });
+  } catch (err: any) {
+    console.error("Detail error:", err.message || err);
+    res.json({});
+  }
+});
+
+// 🚀 Start serveru
 app.listen(port, () => {
   console.log(`✅ FitAI backend running at http://localhost:${port}`);
 });
