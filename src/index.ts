@@ -24,17 +24,16 @@ const openai = new OpenAI({
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
+// --- test endpointy
 app.get("/ping", (req, res) => res.send("pong"));
 app.get("/hello", (req, res) => res.send("Hello from FitAI backend!"));
 
-// 📸 hlavní endpoint
+// 📸 1) ANÁLÝZA JÍDLA → ingredience + makra
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image uploaded" });
-    }
+    if (!req.file) return res.status(400).json({ error: "No image uploaded" });
 
-    // 1️⃣ Vision → seznam ingrediencí
+    // 1️⃣ Vision AI → seznam ingrediencí
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
     const visionResp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -67,34 +66,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
     const ingredients: string[] = parsed.ingredients || [];
     console.log("🍽 Ingredients:", ingredients);
 
-    // 2️⃣ GPT vtipná hláška – jasná otázka
-    let funnyMessage = "Analyzuji jídlo...";
-    try {
-      const gptResp = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a funny nutrition coach. Always reply in one short, humorous sentence in Czech about the food.",
-          },
-          {
-            role: "user",
-            content: `Co ty na tohle jídlo: ${ingredients.join(", ")}? Je to ok nebo ne?`,
-          },
-        ],
-        max_tokens: 50,
-      });
-      funnyMessage = gptResp.choices[0].message.content || funnyMessage;
-    } catch (err: any) {
-      // 🔍 detailní výpis chyb z OpenAI
-      console.error("GPT error:", err.response?.data || err.message || err);
-    }
-
-    console.log("🤖 GPT funnyMessage:", funnyMessage);
-
-    // 3️⃣ Nutritionix → makra pro každou ingredienci
-    const items = [];
+    // 2️⃣ Nutritionix → makra pro každou ingredienci
+    const items: any[] = [];
     for (const ing of ingredients) {
       try {
         const nutriResp = await axios.post(
@@ -122,7 +95,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       }
     }
 
-    // 4️⃣ Součty
+    // 3️⃣ Součty
     const totals = items.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
@@ -134,10 +107,50 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
 
-    res.json({ items, totals, funnyMessage });
+    res.json({ items, totals, ingredients });
   } catch (err: any) {
     console.error(err?.message || err);
     res.status(500).json({ error: "Failed to analyze plate" });
+  }
+});
+
+// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku
+app.post("/funny-message", upload.single("image"), async (req, res) => {
+  console.log("✅ /funny-message endpoint triggered"); // debug log
+  try {
+    if (!req.file) return res.json({ message: "Analyzuji jídlo..." });
+
+    const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
+    const funnyResp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Jsi vtipný kámoš, co komentuje jídlo. Odpověz vždy jen jednou free a krátkou hláškou v češtině.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Co ty na to jídlo? Řekni mi to free a vtipně!" },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+            },
+          ],
+        },
+      ],
+      max_tokens: 50,
+    });
+
+    const funnyMessage =
+      funnyResp.choices[0].message.content || "Analyzuji jídlo...";
+
+    console.log("🤖 FunnyMessage:", funnyMessage);
+    res.json({ message: funnyMessage });
+  } catch (err: any) {
+    console.error("Funny-message error:", err?.message || err);
+    res.json({ message: "Analyzuji jídlo..." }); // fallback
   }
 });
 
