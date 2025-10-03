@@ -132,7 +132,7 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
           Jsi osobní fitness coach a kámoš.
           Tvoje hlášky musí být:
           - vždy česky,
-          - maximálně 1 krátká věta (do 12 slov),
+          - maximálně 2 krátké věty (do 20 slov),
           - sportovní, motivační nebo free-life vibe,
           - žádné metafory, žádné básnění, žádné dlouhé popisy,
           - chval zdravé jídlo ("super fuel na běhání"),
