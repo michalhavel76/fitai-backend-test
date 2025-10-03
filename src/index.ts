@@ -20,7 +20,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ✅ Nutritionix keys
+// ✅ Nutritionix keys z .env
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
@@ -114,11 +114,9 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku + jméno uživatele
+// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku
 app.post("/funny-message", upload.single("image"), async (req, res) => {
   try {
-    const userName = req.body.userName || "kamaráde";
-
     if (!req.file) return res.json({ message: "Analyzuji jídlo..." });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
@@ -129,20 +127,18 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
           role: "system",
           content: `
           Jsi osobní AI coach a kámoš.
-          Tvoje odpovědi:
-          - vždy česky,
-          - max 2 - 3 krátké věty (do 25 slov),
-          - sportovní, motivační nebo lehce free-life vibe,
-          - někdy chval, někdy hecuj, někdy připomeň volnost života,
-          - žádné opakování stejných frází,
-          - používej různorodé emoce a emoji (ale ne pořád stejné),
-          - buď kreativní a měň styl.
+          Odpovídej vždy česky, v druhé osobě jednotného čísla.
+          Piš max 2–3 krátké věty (do 25 slov).
+          Styl: sportovní, motivační, free-life vibe.
+          Občas pochval, občas vyhecuj, občas připomeň, že si máš užít života.
+          Nikdy neopakuj stejné fráze.
+          Používej různé emoji, ale ne pořád stejné.
           `,
         },
         {
           role: "user",
           content: [
-            { type: "text", text: `Co říkáš na tohle jídlo pro ${userName}?` },
+            { type: "text", text: "Co ty na to jídlo? Řekni mi to free a vtipně!" },
             {
               type: "image_url",
               image_url: { url: `data:image/jpeg;base64,${b64}` },
@@ -164,39 +160,40 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🔎 3) SEARCH endpoint – vyhledávání jídel
+// 🔎 3) SEARCH-FOOD
 app.get("/search-food", async (req, res) => {
   try {
     const query = req.query.query as string;
     if (!query) return res.json({ items: [] });
 
-    const searchResp = await axios.get(
-      `https://trackapi.nutritionix.com/v2/search/instant?query=${encodeURIComponent(query)}`,
+    const nutriResp = await axios.post(
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
+      { query },
       {
         headers: {
           "x-app-id": NUTRITIONIX_APP_ID!,
           "x-app-key": NUTRITIONIX_API_KEY!,
+          "Content-Type": "application/json",
         },
       }
     );
 
-    const items =
-      searchResp.data.common.map((f: any) => ({
-        name: f.food_name,
-      })) || [];
+    const items = nutriResp.data.foods.map((f: any) => ({
+      name: f.food_name,
+    }));
 
     res.json({ items });
   } catch (err: any) {
-    console.error("Search error:", err.message || err);
+    console.error("Search-food error:", err?.message || err);
     res.json({ items: [] });
   }
 });
 
-// 📊 4) DETAILS endpoint – detailní makra
+// 📋 4) GET-FOOD-DETAILS
 app.get("/get-food-details", async (req, res) => {
   try {
     const name = req.query.name as string;
-    if (!name) return res.status(400).json({ error: "Missing name" });
+    if (!name) return res.json({});
 
     const nutriResp = await axios.post(
       "https://trackapi.nutritionix.com/v2/natural/nutrients",
@@ -219,12 +216,11 @@ app.get("/get-food-details", async (req, res) => {
       fat: food.nf_total_fat,
     });
   } catch (err: any) {
-    console.error("Detail error:", err.message || err);
+    console.error("Get-food-details error:", err?.message || err);
     res.json({});
   }
 });
 
-// 🚀 Start serveru
 app.listen(port, () => {
   console.log(`✅ FitAI backend running at http://localhost:${port}`);
 });
