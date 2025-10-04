@@ -25,14 +25,14 @@ const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 app.get("/ping", (_, res) => res.send("pong"));
 app.get("/hello", (_, res) => res.send("Hello from FitAI backend!"));
 
-// 📸 1️⃣ ANALÝZA JÍDLA
+// 📸 1️⃣ ANALÝZA JÍDLA (foto → ingredience → makra)
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No image uploaded" });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
 
-    // 🔍 Vision – rozpoznání ingrediencí
+    // 🔍 GPT-4 Vision: rozpoznání ingrediencí
     const visionResp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -92,7 +92,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       }
     }
 
-    // 📊 součet
+    // 📊 Součet makroživin
     const totals = items.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
@@ -107,4 +107,56 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
     res.json({ items, totals });
   } catch (err) {
     console.error("Analyze error:", (err as any).message);
-    res
+    res.json({ items: [], totals: { calories: 0, protein: 0, carbs: 0, fat: 0 } });
+  }
+});
+
+// 🤖 2️⃣ VTIPNÁ HLÁŠKA (foto → GPT hláška)
+app.post("/funny-message", upload.single("image"), async (req, res) => {
+  try {
+    const userName = req.body.userName || "kámo";
+    if (!req.file)
+      return res.json({ message: "Analyzuju tvoje jídlo... 😎" });
+
+    const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
+
+    const funnyResp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
+          Jsi osobní kouč a parťák.
+          Odpovídej česky, do 25 slov.
+          Buď motivační, sportovní, free-life, vtipný.
+          Občas pochval, občas vyhecuj. Používej emoji, ale ne stále stejné.
+        `,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `Co říkáš na tohle jídlo, ${userName}?` },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+          ],
+        },
+      ],
+      max_tokens: 60,
+    });
+
+    const msg =
+      funnyResp.choices?.[0]?.message?.content?.trim() ||
+      "Analyzuju tvoje jídlo... 😎";
+
+    res.json({ message: msg });
+  } catch (err) {
+    console.error("Funny-message error:", (err as any).message);
+    res.json({ message: "Analyzuju tvoje jídlo... 😎" });
+  }
+});
+
+// 🚀 Start serveru
+app.listen(port, () => {
+  console.log(`✅ FitAI backend running at http://localhost:${port}`);
+});
+
+export default app;
