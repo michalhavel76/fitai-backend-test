@@ -36,7 +36,7 @@ async function getNutritionixData(query: string) {
       }
     );
     return response.data.foods || [];
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Nutritionix error:", err.message);
     return [];
   }
