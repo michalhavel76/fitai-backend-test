@@ -16,87 +16,79 @@ app.use(express.json());
 
 const upload = multer({ dest: "uploads/" });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ✅ Nutritionix keys z .env
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
-// --- test endpointy
-app.get("/ping", (req, res) => res.send("pong"));
-app.get("/hello", (req, res) => res.send("Hello from FitAI backend!"));
+// Helper – Nutritionix request
+async function getNutritionixData(query: string) {
+  try {
+    const response = await axios.post(
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
+      { query },
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID,
+          "x-app-key": NUTRITIONIX_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    return response.data.foods || [];
+  } catch (err) {
+    console.error("❌ Nutritionix error:", err.message);
+    return [];
+  }
+}
 
-// 📸 1) ANÁLÝZA JÍDLA → ingredience + makra
+// ---------------------- /analyze-plate ----------------------
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No image uploaded" });
+    const imagePath = req.file?.path;
+    if (!imagePath) return res.status(400).json({ error: "No image uploaded" });
 
-    // 1️⃣ Vision AI → seznam ingrediencí
-    const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
-    const visionResp = await openai.chat.completions.create({
+    // 1️⃣ Recognize ingredients via GPT-4o-mini Vision
+    const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
+
+    const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content:
-            "You are a nutritionist. Return a JSON object with an 'ingredients' array listing food items seen on the plate.",
+            "You are a nutrition assistant. Identify all visible foods in the photo and list them clearly in English, separated by commas.",
         },
         {
           role: "user",
           content: [
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` },
-            },
+            { type: "text", text: "Describe visible foods:" },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
           ],
         },
       ],
-      response_format: { type: "json_object" },
     });
 
-    let parsed;
-    try {
-      parsed = JSON.parse(visionResp.choices[0].message.content || "{}");
-    } catch {
-      return res.status(500).json({ error: "Vision parsing failed" });
-    }
+    const text = gptResponse.choices?.[0]?.message?.content || "";
+    const ingredients = text.split(/,|\n/).map((s) => s.trim()).filter(Boolean);
 
-    const ingredients: string[] = parsed.ingredients || [];
-    console.log("🍽 Ingredients:", ingredients);
-
-    // 2️⃣ Nutritionix → makra pro každou ingredienci
-    const items: any[] = [];
-    for (const ing of ingredients) {
-      try {
-        const nutriResp = await axios.post(
-          "https://trackapi.nutritionix.com/v2/natural/nutrients",
-          { query: ing },
-          {
-            headers: {
-              "x-app-id": NUTRITIONIX_APP_ID!,
-              "x-app-key": NUTRITIONIX_API_KEY!,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        const food = nutriResp.data.foods[0];
-        items.push({
-          name: food.food_name,
-          calories: food.nf_calories,
-          protein: food.nf_protein,
-          carbs: food.nf_total_carbohydrate,
-          fat: food.nf_total_fat,
+    // 2️⃣ Get macros from Nutritionix
+    let allItems: any[] = [];
+    for (const item of ingredients) {
+      const foods = await getNutritionixData(item);
+      if (foods.length > 0) {
+        const f = foods[0];
+        allItems.push({
+          name: f.food_name,
+          calories: f.nf_calories,
+          protein: f.nf_protein,
+          carbs: f.nf_total_carbohydrate,
+          fat: f.nf_total_fat,
         });
-      } catch (e: any) {
-        console.error("Nutritionix error:", e?.message || e);
       }
     }
 
-    // 3️⃣ Součty
-    const totals = items.reduce(
+    const totals = allItems.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
         acc.protein += i.protein || 0;
@@ -107,68 +99,51 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
 
-    res.json({ items, totals, ingredients });
+    fs.unlinkSync(imagePath);
+
+    return res.json({ items: allItems, totals });
   } catch (err: any) {
-    console.error(err?.message || err);
-    res.status(500).json({ error: "Failed to analyze plate" });
+    console.error("❌ Analyze error:", err.message);
+    return res.status(500).json({ error: "Analyze failed" });
   }
 });
 
-// 🤣 2) VTIPNÁ HLÁŠKA → GPT kouká na fotku
+// ---------------------- /funny-message ----------------------
 app.post("/funny-message", upload.single("image"), async (req, res) => {
   try {
-    const nickname = req.body.nickname || "";
+    const imagePath = req.file?.path;
+    if (!imagePath) return res.status(400).json({ error: "No image uploaded" });
 
-    if (!req.file) return res.json({ message: "Analyzuji jídlo..." });
+    const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
 
-    const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
-    const funnyResp = await openai.chat.completions.create({
+    const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `
-          Jsi osobní AI coach a kámoš.
-          Odpovídej:
-          - vždy česky,
-          - pouze 1 krátká věta (max 20 slov),
-          - vždy ve 2. osobě (ty),
-          - sportovní, motivační nebo free-life vibe,
-          - žádné opakování stejných frází,
-          - používej různorodé emoce a emoji (max 2),
-          - pokud bys překročil 20 slov, okamžitě větu ukonči.
-          `,
+          content:
+            "You are a friendly, realistic fitness coach. Write one short, positive comment (max 20 words, 2 emoji max) about the food in the photo. Use second person (you).",
         },
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: `Co říkáš na tohle jídlo pro uživatele ${nickname}?`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` },
-            },
+            { type: "text", text: "Give a fun, motivational remark:" },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
           ],
         },
       ],
-      max_tokens: 40,
-      temperature: 0.9,
-      top_p: 0.9,
     });
 
-    const funnyMessage =
-      funnyResp.choices[0].message.content || "Analyzuji jídlo...";
+    const message = gptResponse.choices?.[0]?.message?.content || "Great choice! Keep it up! 💪";
 
-    console.log("🤖 FunnyMessage:", funnyMessage);
-    res.json({ message: funnyMessage });
+    fs.unlinkSync(imagePath);
+
+    return res.json({ message });
   } catch (err: any) {
-    console.error("Funny-message error:", err?.message || err);
-    res.json({ message: "Analyzuji jídlo..." }); // fallback
+    console.error("❌ Funny message error:", err.message);
+    return res.status(500).json({ message: "You’re doing great, keep going! 💪" });
   }
 });
 
-app.listen(port, () => {
-  console.log(`✅ FitAI backend running at http://localhost:${port}`);
-});
+// -----------------------------------------------------------
+app.listen(port, () => console.log(`🚀 FitAI backend running on port ${port}`));
