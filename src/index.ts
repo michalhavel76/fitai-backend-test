@@ -20,7 +20,32 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
-// Helper – Nutritionix request
+// --- Helper: Translate food names (only if needed) ---
+async function translateName(text: string, lang: string) {
+  const isBrand = /^[A-Z]/.test(text) || /[0-9]|\(|\)|®|™|-/.test(text);
+  if (isBrand) return text; // don't translate brands
+  try {
+    const prompt = {
+      cz: "Přelož do češtiny:",
+      en: "Translate to English:",
+      de: "Übersetze ins Deutsche:",
+      es: "Traduce al español:",
+      fr: "Traduire en français:",
+    };
+    const gptRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: prompt[lang as keyof typeof prompt] || prompt.en },
+        { role: "user", content: text },
+      ],
+    });
+    return gptRes.choices?.[0]?.message?.content?.trim() || text;
+  } catch {
+    return text;
+  }
+}
+
+// --- Helper: Get Nutritionix data ---
 async function getNutritionixData(query: string) {
   try {
     const response = await axios.post(
@@ -35,247 +60,141 @@ async function getNutritionixData(query: string) {
       }
     );
     return response.data.foods || [];
-  } catch (err: any) {
-    console.error("❌ Nutritionix error:", err.message);
+  } catch {
     return [];
   }
 }
 
-// Helper – Czech translation of food name
-async function translateToCzech(text: string) {
-  try {
-    const gptRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Přelož název jídla do přirozené češtiny pro aplikaci o výživě. Nepřekládej značky ani jednotky.",
-        },
-        { role: "user", content: text },
-      ],
-    });
-    return gptRes.choices?.[0]?.message?.content?.trim() || text;
-  } catch (err: any) {
-    console.error("❌ Translation error:", err.message);
-    return text;
+// --- Helper: Get OpenFoodFacts data from multiple mirrors ---
+const OFF_MIRRORS = ["world", "cz", "de", "fr", "es", "it", "pl", "us"];
+async function fetchFromOpenFoodFacts(code: string) {
+  for (const domain of OFF_MIRRORS) {
+    try {
+      const url = `https://${domain}.openfoodfacts.org/api/v2/product/${code}.json`;
+      const response = await axios.get(url, { timeout: 6000 });
+      if (response.data?.product && response.data.status === 1) {
+        return { product: response.data.product, source: domain };
+      }
+    } catch {}
   }
+  return null;
 }
 
-// ---------------------- /analyze-plate ----------------------
-app.post("/analyze-plate", upload.single("image"), async (req, res) => {
-  try {
-    const imagePath = req.file?.path;
-    if (!imagePath) return res.status(400).json({ error: "No image uploaded" });
+// --- Helper: Detect region fallback from language ---
+function getDefaultCountry(lang: string) {
+  const map: any = {
+    cz: "Czech Republic",
+    de: "Germany",
+    es: "Spain",
+    fr: "France",
+    en: "United States",
+  };
+  return map[lang] || "World";
+}
 
-    const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
-
-    const gptResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a nutrition assistant. Identify visible foods in the photo and list them clearly in English, separated by commas.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Describe visible foods:" },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-          ],
-        },
-      ],
-    });
-
-    const text = gptResponse.choices?.[0]?.message?.content || "";
-    const ingredients = text.split(/,|\n/).map((s) => s.trim()).filter(Boolean);
-
-    let allItems: any[] = [];
-    for (const item of ingredients) {
-      const foods = await getNutritionixData(item);
-      if (foods.length > 0) {
-        const f = foods[0];
-        const translated = await translateToCzech(f.food_name);
-        allItems.push({
-          name: translated,
-          calories: Math.round(f.nf_calories || 0),
-          protein: Math.round(f.nf_protein || 0),
-          carbs: Math.round(f.nf_total_carbohydrate || 0),
-          fat: Math.round(f.nf_total_fat || 0),
-        });
-      }
-    }
-
-    const totals = allItems.reduce(
-      (acc, i) => {
-        acc.calories += i.calories || 0;
-        acc.protein += i.protein || 0;
-        acc.carbs += i.carbs || 0;
-        acc.fat += i.fat || 0;
-        return acc;
-      },
-      { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    );
-
-    fs.unlinkSync(imagePath);
-
-    return res.json({ items: allItems, totals });
-  } catch (err: any) {
-    console.error("❌ Analyze error:", err.message);
-    return res.status(500).json({ error: "Analyze failed" });
-  }
-});
-
-// ---------------------- /funny-message ----------------------
-app.post("/funny-message", upload.single("image"), async (req, res) => {
-  try {
-    const imagePath = req.file?.path;
-    if (!imagePath) return res.status(400).json({ error: "No image uploaded" });
-
-    const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
-
-    const gptResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Jsi přátelský fitness coach. Napiš jednu krátkou pozitivní motivační větu o jídle na fotce, max 20 slov, max 2 emoji. Piš v češtině, v druhé osobě.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Vytvoř krátký komentář k jídlu:" },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-          ],
-        },
-      ],
-    });
-
-    const message = gptResponse.choices?.[0]?.message?.content || "Tohle jídlo má styl! 💪";
-
-    fs.unlinkSync(imagePath);
-
-    return res.json({ message });
-  } catch (err: any) {
-    console.error("❌ Funny message error:", err.message);
-    return res.status(500).json({ message: "Dneska jíš skvěle, jen tak dál! 🍽️" });
-  }
-});
-
-// ---------------------- /search-food ----------------------
-app.get("/search-food", async (req, res) => {
-  try {
-    const query = req.query.query as string;
-    if (!query) return res.status(400).json({ items: [] });
-
-    const response = await axios.get("https://trackapi.nutritionix.com/v2/search/instant", {
-      params: { query },
-      headers: {
-        "x-app-id": NUTRITIONIX_APP_ID,
-        "x-app-key": NUTRITIONIX_API_KEY,
-      },
-    });
-
-    const items = await Promise.all(
-      (response.data.common || []).slice(0, 10).map(async (item: any) => {
-        const cz = await translateToCzech(item.food_name);
-        return { name: cz };
-      })
-    );
-
-    return res.json({ items });
-  } catch (err: any) {
-    console.error("❌ Search error:", err.message);
-    return res.json({ items: [] });
-  }
-});
-
-// ---------------------- /get-food-details ----------------------
-app.get("/get-food-details", async (req, res) => {
-  try {
-    const name = req.query.name as string;
-    if (!name) return res.status(400).json({ error: "Missing name" });
-
-    const foods = await getNutritionixData(name);
-    if (!foods.length) return res.status(404).json({ error: "Not found" });
-
-    const f = foods[0];
-    const cz = await translateToCzech(f.food_name);
-
-    return res.json({
-      name: cz,
-      calories: Math.round(f.nf_calories || 0),
-      protein: Math.round(f.nf_protein || 0),
-      carbs: Math.round(f.nf_total_carbohydrate || 0),
-      fat: Math.round(f.nf_total_fat || 0),
-    });
-  } catch (err: any) {
-    console.error("❌ Detail error:", err.message);
-    return res.status(500).json({ error: "Detail fetch failed" });
-  }
-});
-
-// ---------------------- /scan-barcode ----------------------
+// ------------------ /scan-barcode ------------------
 app.get("/scan-barcode", async (req, res) => {
   try {
     const code = req.query.code as string;
+    const lang = (req.query.lang as string) || "en";
+    const country = (req.query.country as string) || getDefaultCountry(lang);
     if (!code) return res.status(400).json({ error: "Missing barcode" });
 
-    const response = await axios.get(`https://world.openfoodfacts.org/api/v2/product/${code}.json`);
-    const product = response.data.product;
+    // If Czech barcode prefix → GPT fallback directly
+    if (code.startsWith("859")) {
+      const gptPrompt = {
+        cz: `Znáš produkt s EAN ${code} z České republiky? Odhadni jeho název a nutriční hodnoty pro 100 g.`,
+        en: `Guess the Czech product with EAN ${code} and estimate its nutrition for 100 g.`,
+        de: `Schätze das tschechische Produkt mit EAN ${code} und seine Nährwerte pro 100 g.`,
+        es: `Adivina el producto checo con EAN ${code} y estima sus valores nutricionales por 100 g.`,
+        fr: `Devine le produit tchèque avec EAN ${code} et estime ses valeurs nutritionnelles pour 100 g.`,
+      };
+      const gptRes = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: gptPrompt[lang as keyof typeof gptPrompt] || gptPrompt.en }],
+      });
+      try {
+        const ai = JSON.parse(gptRes.choices?.[0]?.message?.content || "{}");
+        return res.json({ ...ai, source: "gpt-estimate-cz" });
+      } catch {
+        return res.json({ name: "Czech product", calories: 0, protein: 0, carbs: 0, fat: 0, source: "gpt-estimate-cz" });
+      }
+    }
 
-    if (product && product.product_name) {
-      const czName = await translateToCzech(product.product_name);
-      const nutr = product.nutriments || {};
+    // Try OpenFoodFacts mirrors first
+    const result = await fetchFromOpenFoodFacts(code);
+    if (result && result.product) {
+      const p = result.product;
+      const name = await translateName(p.product_name || "Unknown", lang);
+      const nutr = p.nutriments || {};
+
+      if (!nutr["energy-kcal_100g"]) {
+        // GPT fill missing macros
+        const fillPrompt = `Estimate realistic nutrition for 100 g of ${p.product_name || "product"}. Return JSON.`;
+        const gptRes = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: fillPrompt }],
+        });
+        try {
+          const ai = JSON.parse(gptRes.choices?.[0]?.message?.content || "{}");
+          return res.json({ ...ai, name, country: p.countries_tags?.[0] || result.source, source: `openfoodfacts-${result.source}` });
+        } catch {}
+      }
 
       return res.json({
-        name: czName,
-        country: product.countries_tags?.[0] || "unknown",
+        name,
+        country: p.countries_tags?.[0] || result.source,
         calories: Math.round(nutr["energy-kcal_100g"] || 0),
         protein: Math.round(nutr["proteins_100g"] || 0),
         carbs: Math.round(nutr["carbohydrates_100g"] || 0),
         fat: Math.round(nutr["fat_100g"] || 0),
-        source: "openfoodfacts",
+        source: `openfoodfacts-${result.source}`,
       });
     }
 
-    // fallback – GPT odhad
-    const gptRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Odhadni realistické nutriční hodnoty pro 100 g daného produktu (kalorie, bílkoviny, sacharidy, tuky) a napiš výsledek jako JSON v češtině.",
-        },
-        { role: "user", content: `Produkt: ${code}` },
-      ],
-    });
-
-    const jsonText = gptRes.choices?.[0]?.message?.content || "{}";
-    let aiData;
+    // GPT fallback for other regions
+    const prompt = `Estimate nutrition for product with EAN ${code} from ${country}. Respond in ${lang} as JSON with keys: name, calories, protein, carbs, fat.`;
+    const gpt = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }] });
     try {
-      aiData = JSON.parse(jsonText);
+      const ai = JSON.parse(gpt.choices?.[0]?.message?.content || "{}");
+      return res.json({ ...ai, source: `gpt-estimate-${country}` });
     } catch {
-      aiData = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+      return res.json({ name: "Unknown product", calories: 0, protein: 0, carbs: 0, fat: 0, source: `gpt-estimate-${country}` });
     }
-
-    return res.json({
-      name: code,
-      country: "unknown",
-      calories: Math.round(aiData.calories || 0),
-      protein: Math.round(aiData.protein || 0),
-      carbs: Math.round(aiData.carbs || 0),
-      fat: Math.round(aiData.fat || 0),
-      source: "gpt-estimate",
-    });
   } catch (err: any) {
-    console.error("❌ Barcode error:", err.message);
     return res.status(500).json({ error: "Barcode scan failed" });
   }
 });
 
+// ------------------ /search-food ------------------
+app.get("/search-food", async (req, res) => {
+  const query = req.query.query as string;
+  const lang = (req.query.lang as string) || "en";
+  const country = (req.query.country as string) || getDefaultCountry(lang);
+  if (!query) return res.json({ items: [] });
+
+  // Try Nutritionix first (mainly for US)
+  try {
+    if (country === "United States") {
+      const response = await axios.get("https://trackapi.nutritionix.com/v2/search/instant", {
+        params: { query },
+        headers: { "x-app-id": NUTRITIONIX_APP_ID, "x-app-key": NUTRITIONIX_API_KEY },
+      });
+      const items = (response.data.common || []).map((f: any) => ({ name: f.food_name }));
+      if (items.length > 0) return res.json({ items });
+    }
+  } catch {}
+
+  // GPT fallback for European/local products
+  const prompt = `List 5 likely food or product names similar to '${query}' in ${lang}. Return JSON array.`;
+  const gptRes = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }] });
+  try {
+    const items = JSON.parse(gptRes.choices?.[0]?.message?.content || "[]").map((n: string) => ({ name: n }));
+    return res.json({ items });
+  } catch {
+    return res.json({ items: [] });
+  }
+});
+
 // -----------------------------------------------------------
-app.listen(port, () => console.log(`🚀 FitAI backend running on port ${port}`));
+app.listen(port, () => console.log(`🚀 FitAI backend v2.3 running on port ${port}`));
