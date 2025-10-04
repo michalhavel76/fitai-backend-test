@@ -217,5 +217,65 @@ app.get("/get-food-details", async (req, res) => {
   }
 });
 
+// ---------------------- /scan-barcode ----------------------
+app.get("/scan-barcode", async (req, res) => {
+  try {
+    const code = req.query.code as string;
+    if (!code) return res.status(400).json({ error: "Missing barcode" });
+
+    const response = await axios.get(`https://world.openfoodfacts.org/api/v2/product/${code}.json`);
+    const product = response.data.product;
+
+    if (product && product.product_name) {
+      const czName = await translateToCzech(product.product_name);
+      const nutr = product.nutriments || {};
+
+      return res.json({
+        name: czName,
+        country: product.countries_tags?.[0] || "unknown",
+        calories: Math.round(nutr["energy-kcal_100g"] || 0),
+        protein: Math.round(nutr["proteins_100g"] || 0),
+        carbs: Math.round(nutr["carbohydrates_100g"] || 0),
+        fat: Math.round(nutr["fat_100g"] || 0),
+        source: "openfoodfacts",
+      });
+    }
+
+    // fallback – GPT odhad
+    const gptRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Odhadni realistické nutriční hodnoty pro 100 g daného produktu (kalorie, bílkoviny, sacharidy, tuky) a napiš výsledek jako JSON v češtině.",
+        },
+        { role: "user", content: `Produkt: ${code}` },
+      ],
+    });
+
+    const jsonText = gptRes.choices?.[0]?.message?.content || "{}";
+    let aiData;
+    try {
+      aiData = JSON.parse(jsonText);
+    } catch {
+      aiData = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    }
+
+    return res.json({
+      name: code,
+      country: "unknown",
+      calories: Math.round(aiData.calories || 0),
+      protein: Math.round(aiData.protein || 0),
+      carbs: Math.round(aiData.carbs || 0),
+      fat: Math.round(aiData.fat || 0),
+      source: "gpt-estimate",
+    });
+  } catch (err: any) {
+    console.error("❌ Barcode error:", err.message);
+    return res.status(500).json({ error: "Barcode scan failed" });
+  }
+});
+
 // -----------------------------------------------------------
 app.listen(port, () => console.log(`🚀 FitAI backend running on port ${port}`));
