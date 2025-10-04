@@ -15,7 +15,6 @@ app.use(cors());
 app.use(express.json());
 
 const upload = multer({ dest: "uploads/" });
-
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
@@ -42,13 +41,33 @@ async function getNutritionixData(query: string) {
   }
 }
 
+// Helper – Czech translation of food name
+async function translateToCzech(text: string) {
+  try {
+    const gptRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Přelož název jídla do přirozené češtiny pro aplikaci o výživě. Nepřekládej značky ani jednotky.",
+        },
+        { role: "user", content: text },
+      ],
+    });
+    return gptRes.choices?.[0]?.message?.content?.trim() || text;
+  } catch (err: any) {
+    console.error("❌ Translation error:", err.message);
+    return text;
+  }
+}
+
 // ---------------------- /analyze-plate ----------------------
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
     const imagePath = req.file?.path;
     if (!imagePath) return res.status(400).json({ error: "No image uploaded" });
 
-    // 1️⃣ Recognize ingredients via GPT-4o-mini Vision
     const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
 
     const gptResponse = await openai.chat.completions.create({
@@ -57,7 +76,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         {
           role: "system",
           content:
-            "You are a nutrition assistant. Identify all visible foods in the photo and list them clearly in English, separated by commas.",
+            "You are a nutrition assistant. Identify visible foods in the photo and list them clearly in English, separated by commas.",
         },
         {
           role: "user",
@@ -72,18 +91,18 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
     const text = gptResponse.choices?.[0]?.message?.content || "";
     const ingredients = text.split(/,|\n/).map((s) => s.trim()).filter(Boolean);
 
-    // 2️⃣ Get macros from Nutritionix
     let allItems: any[] = [];
     for (const item of ingredients) {
       const foods = await getNutritionixData(item);
       if (foods.length > 0) {
         const f = foods[0];
+        const translated = await translateToCzech(f.food_name);
         allItems.push({
-          name: f.food_name,
-          calories: f.nf_calories,
-          protein: f.nf_protein,
-          carbs: f.nf_total_carbohydrate,
-          fat: f.nf_total_fat,
+          name: translated,
+          calories: Math.round(f.nf_calories || 0),
+          protein: Math.round(f.nf_protein || 0),
+          carbs: Math.round(f.nf_total_carbohydrate || 0),
+          fat: Math.round(f.nf_total_fat || 0),
         });
       }
     }
@@ -122,26 +141,79 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
         {
           role: "system",
           content:
-            "You are a friendly, realistic fitness coach. Write one short, positive comment (max 20 words, 2 emoji max) about the food in the photo. Use second person (you).",
+            "Jsi přátelský fitness coach. Napiš jednu krátkou pozitivní motivační větu o jídle na fotce, max 20 slov, max 2 emoji. Piš v češtině, v druhé osobě.",
         },
         {
           role: "user",
           content: [
-            { type: "text", text: "Give a fun, motivational remark:" },
+            { type: "text", text: "Vytvoř krátký komentář k jídlu:" },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
           ],
         },
       ],
     });
 
-    const message = gptResponse.choices?.[0]?.message?.content || "Great choice! Keep it up! 💪";
+    const message = gptResponse.choices?.[0]?.message?.content || "Tohle jídlo má styl! 💪";
 
     fs.unlinkSync(imagePath);
 
     return res.json({ message });
   } catch (err: any) {
     console.error("❌ Funny message error:", err.message);
-    return res.status(500).json({ message: "You’re doing great, keep going! 💪" });
+    return res.status(500).json({ message: "Dneska jíš skvěle, jen tak dál! 🍽️" });
+  }
+});
+
+// ---------------------- /search-food ----------------------
+app.get("/search-food", async (req, res) => {
+  try {
+    const query = req.query.query as string;
+    if (!query) return res.status(400).json({ items: [] });
+
+    const response = await axios.get("https://trackapi.nutritionix.com/v2/search/instant", {
+      params: { query },
+      headers: {
+        "x-app-id": NUTRITIONIX_APP_ID,
+        "x-app-key": NUTRITIONIX_API_KEY,
+      },
+    });
+
+    const items = await Promise.all(
+      (response.data.common || []).slice(0, 10).map(async (item: any) => {
+        const cz = await translateToCzech(item.food_name);
+        return { name: cz };
+      })
+    );
+
+    return res.json({ items });
+  } catch (err: any) {
+    console.error("❌ Search error:", err.message);
+    return res.json({ items: [] });
+  }
+});
+
+// ---------------------- /get-food-details ----------------------
+app.get("/get-food-details", async (req, res) => {
+  try {
+    const name = req.query.name as string;
+    if (!name) return res.status(400).json({ error: "Missing name" });
+
+    const foods = await getNutritionixData(name);
+    if (!foods.length) return res.status(404).json({ error: "Not found" });
+
+    const f = foods[0];
+    const cz = await translateToCzech(f.food_name);
+
+    return res.json({
+      name: cz,
+      calories: Math.round(f.nf_calories || 0),
+      protein: Math.round(f.nf_protein || 0),
+      carbs: Math.round(f.nf_total_carbohydrate || 0),
+      fat: Math.round(f.nf_total_fat || 0),
+    });
+  } catch (err: any) {
+    console.error("❌ Detail error:", err.message);
+    return res.status(500).json({ error: "Detail fetch failed" });
   }
 });
 
