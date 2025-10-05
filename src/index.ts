@@ -92,7 +92,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       }
     }
 
-    // 📊 Součet makroživin
+    // 📊 Součet makroživin + zaokrouhlení
     const totals = items.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
@@ -104,10 +104,20 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
 
-    res.json({ items, totals });
+    const roundedTotals = {
+      calories: Math.round(totals.calories),
+      protein: Math.round(totals.protein),
+      carbs: Math.round(totals.carbs),
+      fat: Math.round(totals.fat),
+    };
+
+    res.json({ items, totals: roundedTotals });
   } catch (err) {
     console.error("Analyze error:", (err as any).message);
-    res.json({ items: [], totals: { calories: 0, protein: 0, carbs: 0, fat: 0 } });
+    res.json({
+      items: [],
+      totals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    });
   }
 });
 
@@ -136,7 +146,10 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
           role: "user",
           content: [
             { type: "text", text: `Co říkáš na tohle jídlo, ${userName}?` },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+            },
           ],
         },
       ],
@@ -151,6 +164,63 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   } catch (err) {
     console.error("Funny-message error:", (err as any).message);
     res.json({ message: "Analyzuju tvoje jídlo... 😎" });
+  }
+});
+
+// 🍎 3️⃣ PŘEPOČET JEDNÉ POTRAVINY (pro editaci v appce)
+app.post("/calculate-food", async (req, res) => {
+  try {
+    const { food, grams } = req.body;
+
+    if (!food || !grams) {
+      return res.status(400).json({
+        success: false,
+        error: "Chybí název nebo množství (food, grams)",
+      });
+    }
+
+    const response = await axios.post(
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
+      { query: `${grams}g ${food}` },
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID,
+          "x-app-key": NUTRITIONIX_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const item = response.data.foods[0];
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        error: "Potravina nebyla nalezena",
+      });
+    }
+
+    const result = {
+      calories: Math.round(item.nf_calories || 0),
+      protein: Math.round(item.nf_protein || 0),
+      carbs: Math.round(item.nf_total_carbohydrate || 0),
+      fat: Math.round(item.nf_total_fat || 0),
+    };
+
+    res.json({
+      success: true,
+      result,
+      name: item.food_name,
+      serving_qty: item.serving_qty,
+      serving_unit: item.serving_unit,
+      photo: item.photo?.thumb || null,
+    });
+  } catch (err) {
+    console.error("❌ Chyba /calculate-food:", (err as any).message);
+    res.status(500).json({
+      success: false,
+      error: "Nepodařilo se spočítat hodnoty pro danou potravinu",
+    });
   }
 });
 
