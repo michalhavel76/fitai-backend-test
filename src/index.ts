@@ -167,7 +167,7 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🍎 3️⃣ PŘEPOČET JEDNÉ POTRAVINY (pro editaci v appce)
+// 🍎 3️⃣ PŘEPOČET JEDNÉ POTRAVINY
 app.post("/calculate-food", async (req, res) => {
   try {
     const { food, grams } = req.body;
@@ -221,6 +221,42 @@ app.post("/calculate-food", async (req, res) => {
       success: false,
       error: "Nepodařilo se spočítat hodnoty pro danou potravinu",
     });
+  }
+});
+
+// 🔎 4️⃣ VYHLEDÁVÁNÍ POTRAVIN (autocomplete)
+app.post("/search-food", async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || query.length < 1) {
+      return res.status(400).json({ success: false, error: "Query required" });
+    }
+
+    const response = await axios.get(
+      `https://trackapi.nutritionix.com/v2/search/instant?query=${query}`,
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID,
+          "x-app-key": NUTRITIONIX_API_KEY,
+        },
+      }
+    );
+
+    const results = [
+      ...response.data.common,
+      ...response.data.branded,
+    ]
+      .slice(0, 10)
+      .map((item) => ({
+        name: item.food_name,
+        brand: item.brand_name || "",
+        photo: item.photo?.thumb || "",
+      }));
+
+    res.json({ success: true, results });
+  } catch (err) {
+    console.error("❌ search-food error:", (err as any).message);
+    res.status(500).json({ success: false, error: "Search failed" });
   }
 });
 
