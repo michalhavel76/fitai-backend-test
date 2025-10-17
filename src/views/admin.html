@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <title>FitAI Admin Panel</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #111;
+      color: #eee;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      color: #00ff9c;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      background-color: #222;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #333;
+      text-align: left;
+    }
+    th {
+      background-color: #333;
+      color: #00ff9c;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+    tr:hover {
+      background-color: #1b1b1b;
+    }
+    img {
+      width: 80px;
+      border-radius: 6px;
+    }
+    input, textarea {
+      width: 95%;
+      padding: 8px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      border: none;
+      outline: none;
+      background: #222;
+      color: #eee;
+    }
+    button {
+      background: #00ff9c;
+      border: none;
+      color: #111;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: 0.2s;
+      margin-right: 6px;
+    }
+    button:hover {
+      background: #00cc7c;
+    }
+    #editModal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      justify-content: center;
+      align-items: center;
+    }
+    #editBox {
+      background: #1c1c1c;
+      padding: 20px;
+      border-radius: 12px;
+      width: 420px;
+      box-shadow: 0 0 20px #000;
+    }
+  </style>
+</head>
+<body>
+  <h1>🍽️ FitAI Admin Panel</h1>
+  <input type="text" id="search" placeholder="Vyhledat jídlo..." />
+  <table id="foodTable">
+    <thead>
+      <tr>
+        <th>Obrázek</th>
+        <th>Název (CZ)</th>
+        <th>Kcal</th>
+        <th>Bílkoviny</th>
+        <th>Sacharidy</th>
+        <th>Tuky</th>
+        <th>Zdroj</th>
+        <th>Akce</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- 🔹 MODÁLNÍ OKNO EDITACE -->
+  <div id="editModal">
+    <div id="editBox">
+      <h2>✏️ Upravit jídlo</h2>
+      <input id="editName" placeholder="Název jídla" />
+      <input id="editKcal" placeholder="Kcal" type="number" />
+      <input id="editProtein" placeholder="Bílkoviny (g)" type="number" />
+      <input id="editCarbs" placeholder="Sacharidy (g)" type="number" />
+      <input id="editFat" placeholder="Tuky (g)" type="number" />
+      <input id="editSource" placeholder="Zdroj (např. FitAI / Nutritionix)" />
+      <button onclick="saveChanges()">💾 Uložit</button>
+      <button onclick="closeModal()">❌ Zavřít</button>
+    </div>
+  </div>
+
+  <script>
+    let foods = [];
+    let editingFood = null;
+
+    async function loadFoods() {
+      const res = await fetch("/admin/data");
+      foods = await res.json();
+      render(foods);
+    }
+
+    function render(data) {
+      const table = document.querySelector("#foodTable tbody");
+      table.innerHTML = "";
+      data.forEach(food => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><img src="${food.image_url || ''}" alt="food"></td>
+          <td>${food.names?.cs || food.name}</td>
+          <td>${food.nutrition?.macronutrients?.energy_kcal || food.energy_kcal}</td>
+          <td>${food.nutrition?.macronutrients?.protein_g || food.protein_g}</td>
+          <td>${food.nutrition?.macronutrients?.carbs_g || food.carbs_g}</td>
+          <td>${food.nutrition?.macronutrients?.fat_g || food.fat_g}</td>
+          <td>${food.source}</td>
+          <td>
+            <button onclick="editFood('${food.id || food.name}')">✏️ Upravit</button>
+            <button onclick="deleteFood('${food.id || food.name}')">🗑️ Smazat</button>
+          </td>
+        `;
+        table.appendChild(tr);
+      });
+    }
+
+    function editFood(id) {
+      editingFood = foods.find(f => f.id === id || f.name === id);
+      if (!editingFood) return;
+      document.getElementById("editName").value = editingFood.names?.cs || editingFood.name;
+      document.getElementById("editKcal").value = editingFood.energy_kcal || 0;
+      document.getElementById("editProtein").value = editingFood.protein_g || 0;
+      document.getElementById("editCarbs").value = editingFood.carbs_g || 0;
+      document.getElementById("editFat").value = editingFood.fat_g || 0;
+      document.getElementById("editSource").value = editingFood.source || "";
+      document.getElementById("editModal").style.display = "flex";
+    }
+
+    function closeModal() {
+      document.getElementById("editModal").style.display = "none";
+    }
+
+    async function saveChanges() {
+      const updated = {
+        id: editingFood.id,
+        name: document.getElementById("editName").value,
+        energy_kcal: parseFloat(document.getElementById("editKcal").value),
+        protein_g: parseFloat(document.getElementById("editProtein").value),
+        carbs_g: parseFloat(document.getElementById("editCarbs").value),
+        fat_g: parseFloat(document.getElementById("editFat").value),
+        source: document.getElementById("editSource").value
+      };
+      await fetch("/admin/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated)
+      });
+      closeModal();
+      loadFoods();
+    }
+
+    async function deleteFood(id) {
+      if (confirm("Opravdu chceš smazat toto jídlo?")) {
+        await fetch(`/admin/delete/${id}`, { method: "DELETE" });
+        loadFoods();
+      }
+    }
+
+    document.getElementById("search").addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase();
+      const filtered = foods.filter(f =>
+        (f.names?.cs || f.name || "").toLowerCase().includes(q)
+      );
+      render(filtered);
+    });
+
+    loadFoods();
+  </script>
+</body>
+</html>

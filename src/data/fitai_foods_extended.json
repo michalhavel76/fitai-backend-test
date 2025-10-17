@@ -1,0 +1,129 @@
+[
+  {
+    "id": "cz_0001",
+    "name": "Guláš s houskovým knedlíkem",
+    "country": "CZ",
+    "category": "české jídlo",
+    "base_portion_g": 310,
+    "portion_description": "250 g guláš + 5 ks houskový knedlík",
+    "energy_kcal": 720,
+    "protein_g": 35,
+    "carbs_g": 55,
+    "fat_g": 38,
+    "fiber_g": 3,
+    "sugar_g": 6,
+    "cholesterol_mg": 95,
+    "sodium_mg": 820,
+    "vitamins": {
+      "vitamin_a_µg": 120,
+      "vitamin_c_mg": 5,
+      "vitamin_d_µg": 0.4,
+      "vitamin_b6_mg": 0.3,
+      "vitamin_b12_µg": 1.2
+    },
+    "minerals": {
+      "calcium_mg": 40,
+      "iron_mg": 2.3,
+      "magnesium_mg": 18,
+      "potassium_mg": 310,
+      "zinc_mg": 2.1
+    },
+    "tags": [
+      "maso",
+      "omáčka",
+      "tradiční",
+      "hlavní jídlo"
+    ],
+    "image_url": "https://fitai.cz/foods/gulas_knedlik.jpg",
+    "source": "FitAI estimate"
+  },
+  {
+    "id": "cz_0002",
+    "name": "Smažený řízek s bramborem",
+    "country": "CZ",
+    "category": "české jídlo",
+    "base_portion_g": 350,
+    "portion_description": "150 g vepřový řízek + 200 g vařený brambor",
+    "energy_kcal": 780,
+    "protein_g": 45,
+    "carbs_g": 60,
+    "fat_g": 35,
+    "fiber_g": 4,
+    "sugar_g": 2,
+    "cholesterol_mg": 110,
+    "sodium_mg": 890,
+    "vitamins": {
+      "vitamin_a_µg": 15,
+      "vitamin_c_mg": 18,
+      "vitamin_d_µg": 0.5,
+      "vitamin_b6_mg": 0.5,
+      "vitamin_b12_µg": 0.9
+    },
+    "minerals": {
+      "calcium_mg": 35,
+      "iron_mg": 2,
+      "magnesium_mg": 28,
+      "potassium_mg": 490,
+      "zinc_mg": 2.3
+    },
+    "tags": [
+      "maso",
+      "smažené",
+      "brambory",
+      "hlavní jídlo"
+    ],
+    "image_url": "https://fitai.cz/foods/rizek_brambory.jpg",
+    "source": "FitAI estimate"
+  },
+  {
+    "id": "cz_0003",
+    "name": "Svíčková na smetaně s houskovým knedlíkem",
+    "country": "CZ",
+    "category": "české jídlo",
+    "base_portion_g": 400,
+    "portion_description": "150 g hovězí + 200 g omáčka + 5 ks houskový knedlík",
+    "energy_kcal": 830,
+    "protein_g": 42,
+    "carbs_g": 70,
+    "fat_g": 40,
+    "fiber_g": 3,
+    "sugar_g": 8,
+    "cholesterol_mg": 120,
+    "sodium_mg": 780,
+    "vitamins": {
+      "vitamin_a_µg": 220,
+      "vitamin_c_mg": 8,
+      "vitamin_d_µg": 0.3,
+      "vitamin_b6_mg": 0.4,
+      "vitamin_b12_µg": 1.5
+    },
+    "minerals": {
+      "calcium_mg": 50,
+      "iron_mg": 2.6,
+      "magnesium_mg": 22,
+      "potassium_mg": 350,
+      "zinc_mg": 2
+    },
+    "tags": [
+      "maso",
+      "omáčka",
+      "knedlíky",
+      "hlavní jídlo"
+    ],
+    "image_url": "https://fitai.cz/foods/svickova_knedlik.jpg",
+    "source": "FitAI estimate"
+  },
+  {
+    "name": "cod fish",
+    "base_portion_g": 300,
+    "energy_kcal": 315,
+    "protein_g": 68.49,
+    "carbs_g": 0,
+    "fat_g": 2.58,
+    "sugar_g": 0,
+    "cholesterol_mg": 165,
+    "vitamins": {},
+    "minerals": {},
+    "source": "Nutritionix"
+  }
+]
