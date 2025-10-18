@@ -7,7 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "prestart": "npm run build",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "add-updated-at": "ts-node src/addUpdatedAt.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.17.1",
