@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model foods {
+  id                 Int      @id @default(autoincrement())
+  name_en            String?
+  name_cz            String?
+  category           String?
+  origin             String?
+  kcal               Float?
+  protein            Float?
+  carbs              Float?
+  fat                Float?
+  fiber              Float?
+  sugar              Float?
+  sodium             Float?
+  vitamin_a          Float?
+  vitamin_c          Float?
+  calcium            Float?
+  iron               Float?
+  source             String?
+  image_url          String?
+  lang               Json?
+  created_at         DateTime? @default(now())
+
+  // --- 🌍 FitAI 4.0 – Globální a mikroživinová rozšíření ---
+  vitamin_d          Float?
+  vitamin_e          Float?
+  vitamin_k          Float?
+  thiamin_b1         Float?
+  riboflavin_b2      Float?
+  niacin_b3          Float?
+  pantothenic_b5     Float?
+  vitamin_b6         Float?
+  folate_b9          Float?
+  vitamin_b12        Float?
+  biotin_b7          Float?
+  choline            Float?
+  magnesium          Float?
+  phosphorus         Float?
+  potassium          Float?
+  zinc               Float?
+  copper             Float?
+  manganese          Float?
+  selenium           Float?
+  iodine             Float?
+  chromium           Float?
+  molybdenum         Float?
+  omega_3            Float?
+  omega_6            Float?
+  cholesterol        Float?
+  trans_fat          Float?
+  monounsaturated_fat Float?
+  polyunsaturated_fat Float?
+  caffeine           Float?
+  alcohol            Float?
+  water              Float?
+
+  // --- 🍽️ FitAI Global Dishes ---
+  dish_name          String?
+  region             String?   @default("global")
+  composition        Json?
+  accuracy_score     Float?    @default(0.0)
+  is_global          Boolean?  @default(false)
+}
