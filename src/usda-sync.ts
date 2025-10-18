@@ -1,7 +1,6 @@
 // ==============================================
-// FitAI 4.1 – Smart USDA Storage & Premium Logic
-// Added by ChatGPT – 2025-10-18
-// Original code preserved, only extensions below
+// FitAI 4.3.1 – Smart USDA Storage & Premium Logic (Build Safe)
+// Fixed for Railway (removed unsupported Prisma JSON fields)
 // ==============================================
 
 import express from "express";
@@ -78,7 +77,7 @@ router.post("/usda-sync", async (req, res) => {
           nutrients.vitamin_b5 = val;
         if (name.includes("vitamin b6")) nutrients.vitamin_b6 = val;
         if (name.includes("vitamin b12")) nutrients.vitamin_b12 = val;
-        if (name.includes("folate")) nutrients.folate = val;
+        if (name.includes("folate")) nutrients.folate_b9 = val;
         if (name.includes("vitamin c")) nutrients.vitamin_c = val;
         if (name.includes("vitamin d")) nutrients.vitamin_d = val;
         if (name.includes("vitamin e")) nutrients.vitamin_e = val;
@@ -94,14 +93,8 @@ router.post("/usda-sync", async (req, res) => {
       }
     });
 
-    // === Audit data for transparency ===
-    const calcOrigin = {
-      source: "USDA",
-      fdcId,
-      plan,
-      timestamp: new Date().toISOString(),
-      derivedFrom: "FitAI 4.1 Smart USDA Logic",
-    };
+    // 🧾 Audit meta (už bez JSON pole – string verze)
+    const auditNote = `USDA sync at ${new Date().toISOString()} [Plan: ${plan}, FDC: ${fdcId}]`;
 
     // 🧩 Check if record already exists
     const existing = await prisma.foods.findFirst({
@@ -116,7 +109,8 @@ router.post("/usda-sync", async (req, res) => {
           ...nutrients,
           source: "USDA",
           accuracy_score: 1.0,
-          calc_origin: calcOrigin,
+          lang: { note: auditNote } as any, // 👈 uložíme audit poznámku do JSON pole lang
+          created_at: new Date(),
         },
       });
       console.log("♻️ Updated existing food:", updated.name_en);
@@ -124,12 +118,14 @@ router.post("/usda-sync", async (req, res) => {
       updated = await prisma.foods.create({
         data: {
           name_en: food.toLowerCase(),
+          name_cz: food.toLowerCase(),
           ...nutrients,
           source: "USDA",
           region: "global",
           is_global: true,
           accuracy_score: 1.0,
-          calc_origin: calcOrigin,
+          lang: { note: auditNote } as any,
+          created_at: new Date(),
         },
       });
       console.log("🆕 Created new food:", updated.name_en);
@@ -150,5 +146,5 @@ router.post("/usda-sync", async (req, res) => {
 export default router;
 
 // ==============================================
-// END – FitAI 4.1 Smart USDA Storage & Premium Logic
+// END – FitAI 4.3.1 Smart USDA Storage & Premium Logic
 // ==============================================
