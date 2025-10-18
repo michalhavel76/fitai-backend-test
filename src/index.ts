@@ -232,7 +232,7 @@ app.get("/suggest", async (req, res) => {
 });
 
 /* =======================================================
-   ⚖️ CALCULATE SINGLE FOOD (včetně fallbacku na full_nutrients)
+   ⚖️ CALCULATE SINGLE FOOD (auto re-sync pokud chybí makra)
 ======================================================= */
 app.post("/calculate-food", async (req, res) => {
   try {
@@ -243,90 +243,104 @@ app.post("/calculate-food", async (req, res) => {
     const g = Number(grams) || 100;
 
     // 1️⃣ Hledání v DB
-    const local = await pool.query(
+    const localRes = await pool.query(
       `SELECT * FROM foods WHERE LOWER(name_en) = $1 OR LOWER(name_cz) = $1 LIMIT 1`,
       [lowerFood]
     );
 
-    if (local.rows.length > 0) {
-      const f = local.rows[0];
-      const result = {
-        calories: (Number(f.kcal) / 100) * g,
-        protein: (Number(f.protein) / 100) * g,
-        carbs: (Number(f.carbs) / 100) * g,
-        fat: (Number(f.fat) / 100) * g,
+    let foodData = localRes.rows[0];
+    let fromNutritionix = false;
+
+    // 2️⃣ Pokud chybí makra → dotáhnout z Nutritionix
+    const isIncomplete =
+      !foodData ||
+      Number(foodData.protein) === 0 ||
+      Number(foodData.carbs) === 0 ||
+      Number(foodData.fat) === 0;
+
+    if (isIncomplete) {
+      console.log("🔄 Refreshing from Nutritionix:", food);
+
+      const nutriResp = await axios.post(
+        "https://trackapi.nutritionix.com/v2/natural/nutrients",
+        { query: food },
+        {
+          headers: {
+            "x-app-id": NUTRITIONIX_APP_ID!,
+            "x-app-key": NUTRITIONIX_API_KEY!,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const f = nutriResp.data.foods?.[0];
+      if (!f) return res.json({ success: false, error: "No food found" });
+
+      // Fallback na full_nutrients, pokud hlavní hodnoty chybí
+      const findNutrient = (id: number) =>
+        f.full_nutrients?.find((n: any) => n.attr_id === id)?.value || 0;
+
+      const kcal = Number(f.nf_calories) || findNutrient(208) || 0;
+      const protein = Number(f.nf_protein) || findNutrient(203) || 0;
+      const carbs = Number(f.nf_total_carbohydrate) || findNutrient(205) || 0;
+      const fat = Number(f.nf_total_fat) || findNutrient(204) || 0;
+
+      const image_url = f.photo?.thumb || null;
+
+      // 💾 Uložit (update, pokud existuje)
+      if (foodData) {
+        await pool.query(
+          `UPDATE foods 
+           SET kcal=$1, protein=$2, carbs=$3, fat=$4, image_url=$5, source='nutritionix', updated_at=NOW() 
+           WHERE id=$6`,
+          [kcal, protein, carbs, fat, image_url, foodData.id]
+        );
+      } else {
+        const insertRes = await pool.query(
+          `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'nutritionix',NOW())
+           RETURNING *`,
+          [f.food_name, f.food_name, kcal, protein, carbs, fat, image_url]
+        );
+        foodData = insertRes.rows[0];
+      }
+
+      fromNutritionix = true;
+      foodData = {
+        ...foodData,
+        kcal,
+        protein,
+        carbs,
+        fat,
       };
-      console.log("✅ DB match:", f.name_en, result);
-      return res.json({ success: true, name: f.name_cz || f.name_en, result });
     }
 
-    // 2️⃣ Nutritionix fallback
-    const nutriResp = await axios.post(
-      "https://trackapi.nutritionix.com/v2/natural/nutrients",
-      { query: food },
-      {
-        headers: {
-          "x-app-id": NUTRITIONIX_APP_ID!,
-          "x-app-key": NUTRITIONIX_API_KEY!,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const f = nutriResp.data.foods?.[0];
-    if (!f) return res.json({ success: false, error: "No food found" });
-
-    // 🔍 Přesné převody + fallback na full_nutrients
-    const findNutrient = (id: number) =>
-      f.full_nutrients?.find((n: any) => n.attr_id === id)?.value || 0;
-
-    const kcal = Number(f.nf_calories) || findNutrient(208) || 0; // kcal
-    const protein = Number(f.nf_protein) || findNutrient(203) || 0;
-    const carbs = Number(f.nf_total_carbohydrate) || findNutrient(205) || 0;
-    const fat = Number(f.nf_total_fat) || findNutrient(204) || 0;
-
-    const newFood = {
-      name_en: f.food_name,
-      name_cz: f.food_name,
-      kcal,
-      protein,
-      carbs,
-      fat,
-      image_url: f.photo?.thumb || null,
-      source: "nutritionix",
-    };
-
-    // 💾 Uložení do DB
-    await pool.query(
-      `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
-      [
-        newFood.name_en,
-        newFood.name_cz,
-        newFood.kcal,
-        newFood.protein,
-        newFood.carbs,
-        newFood.fat,
-        newFood.image_url,
-        newFood.source,
-      ]
-    );
-
-    // 📊 Výpočet pro danou gramáž
+    // 3️⃣ Přepočet pro gramáž
     const result = {
-      calories: (kcal / 100) * g,
-      protein: (protein / 100) * g,
-      carbs: (carbs / 100) * g,
-      fat: (fat / 100) * g,
+      calories: (Number(foodData.kcal) / 100) * g,
+      protein: (Number(foodData.protein) / 100) * g,
+      carbs: (Number(foodData.carbs) / 100) * g,
+      fat: (Number(foodData.fat) / 100) * g,
     };
 
-    console.log("🌐 Nutritionix match:", f.food_name, result);
-    return res.json({ success: true, name: f.food_name, result });
+    console.log(
+      fromNutritionix ? "🌐 Re-synced from Nutritionix:" : "✅ From DB:",
+      foodData.name_en,
+      result
+    );
+
+    return res.json({
+      success: true,
+      name: foodData.name_cz || foodData.name_en,
+      result,
+      source: fromNutritionix ? "nutritionix" : "local",
+    });
   } catch (err: any) {
     console.error("❌ Calculate error:", err.message);
     res.json({ success: false, error: "Calculation failed" });
   }
 });
+
 
 app.listen(port, () => {
   console.log(`✅ FitAI Backend 3.2 running on port ${port}`);
