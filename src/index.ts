@@ -6,6 +6,7 @@ import fs from "fs";
 import OpenAI from "openai";
 import axios from "axios";
 import { Pool } from "pg";
+import usdaSyncRoute from "./usda-sync";
 
 dotenv.config();
 
@@ -165,7 +166,6 @@ app.get("/suggest", async (req, res) => {
       return res.json(cached.data);
     }
 
-    // 1️⃣ Lokální DB
     const local = await pool.query(
       `SELECT id, name_cz, name_en, kcal, protein, carbs, fat, image_url 
        FROM foods 
@@ -179,7 +179,6 @@ app.get("/suggest", async (req, res) => {
       return res.json(local.rows);
     }
 
-    // 2️⃣ Nutritionix fallback
     const nutriResp = await axios.post(
       "https://trackapi.nutritionix.com/v2/natural/nutrients",
       { query },
@@ -242,7 +241,6 @@ app.post("/calculate-food", async (req, res) => {
     const lowerFood = food.toLowerCase();
     const g = Number(grams) || 100;
 
-    // 1️⃣ Hledání v DB
     const localRes = await pool.query(
       `SELECT * FROM foods WHERE LOWER(name_en) = $1 OR LOWER(name_cz) = $1 LIMIT 1`,
       [lowerFood]
@@ -251,7 +249,6 @@ app.post("/calculate-food", async (req, res) => {
     let foodData = localRes.rows[0];
     let fromNutritionix = false;
 
-    // 2️⃣ Pokud chybí makra → dotáhnout z Nutritionix
     const isIncomplete =
       !foodData ||
       Number(foodData.protein) === 0 ||
@@ -276,7 +273,6 @@ app.post("/calculate-food", async (req, res) => {
       const f = nutriResp.data.foods?.[0];
       if (!f) return res.json({ success: false, error: "No food found" });
 
-      // Fallback na full_nutrients, pokud hlavní hodnoty chybí
       const findNutrient = (id: number) =>
         f.full_nutrients?.find((n: any) => n.attr_id === id)?.value || 0;
 
@@ -284,10 +280,8 @@ app.post("/calculate-food", async (req, res) => {
       const protein = Number(f.nf_protein) || findNutrient(203) || 0;
       const carbs = Number(f.nf_total_carbohydrate) || findNutrient(205) || 0;
       const fat = Number(f.nf_total_fat) || findNutrient(204) || 0;
-
       const image_url = f.photo?.thumb || null;
 
-      // 💾 Uložit (update, pokud existuje)
       if (foodData) {
         await pool.query(
           `UPDATE foods 
@@ -306,16 +300,9 @@ app.post("/calculate-food", async (req, res) => {
       }
 
       fromNutritionix = true;
-      foodData = {
-        ...foodData,
-        kcal,
-        protein,
-        carbs,
-        fat,
-      };
+      foodData = { ...foodData, kcal, protein, carbs, fat };
     }
 
-    // 3️⃣ Přepočet pro gramáž
     const result = {
       calories: (Number(foodData.kcal) / 100) * g,
       protein: (Number(foodData.protein) / 100) * g,
@@ -341,7 +328,68 @@ app.post("/calculate-food", async (req, res) => {
   }
 });
 
+/* =======================================================
+   🧬 USDA SYNC (FitAI 4.0)
+======================================================= */
+app.post("/usda-sync", async (req, res) => {
+  try {
+    const { food } = req.body;
+    if (!food) return res.status(400).json({ error: "Missing food name" });
 
+    const USDA_API_KEY = "CoapVie1RnpUCrfGNfbeoDyG0Ut3DNktWOyLnUC0";
+    const USDA_SEARCH_URL = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}`;
+
+    console.log("🔎 Searching USDA for:", food);
+    const searchRes = await axios.get(`${USDA_SEARCH_URL}&query=${encodeURIComponent(food)}&pageSize=1`);
+    const searchData = searchRes.data;
+
+    if (!searchData.foods?.length) return res.status(404).json({ error: "No match found in USDA." });
+
+    const fdcId = searchData.foods[0].fdcId;
+    const foodRes = await axios.get(`https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_API_KEY}`);
+    const foodData = foodRes.data;
+
+    const nutrients: Record<string, number> = {};
+    foodData.foodNutrients?.forEach((n: any) => {
+      const name = n.nutrient?.name?.toLowerCase() || "";
+      const val = n.amount || 0;
+
+      if (name.includes("vitamin a")) nutrients.vitamin_a = val;
+      if (name.includes("vitamin c")) nutrients.vitamin_c = val;
+      if (name.includes("vitamin d")) nutrients.vitamin_d = val;
+      if (name.includes("vitamin e")) nutrients.vitamin_e = val;
+      if (name.includes("vitamin k")) nutrients.vitamin_k = val;
+      if (name.includes("calcium")) nutrients.calcium = val;
+      if (name.includes("iron")) nutrients.iron = val;
+      if (name.includes("zinc")) nutrients.zinc = val;
+      if (name.includes("magnesium")) nutrients.magnesium = val;
+      if (name.includes("phosphorus")) nutrients.phosphorus = val;
+      if (name.includes("potassium")) nutrients.potassium = val;
+      if (name.includes("copper")) nutrients.copper = val;
+      if (name.includes("manganese")) nutrients.manganese = val;
+      if (name.includes("selenium")) nutrients.selenium = val;
+      if (name.includes("sodium")) nutrients.sodium = val;
+      if (name.includes("cholesterol")) nutrients.cholesterol = val;
+      if (name.includes("monounsaturated")) nutrients.monounsaturated_fat = val;
+      if (name.includes("polyunsaturated")) nutrients.polyunsaturated_fat = val;
+      if (name.includes("trans")) nutrients.trans_fat = val;
+      if (name.includes("water")) nutrients.water = val;
+    });
+
+    await pool.query(
+      `INSERT INTO foods (name_en, name_cz, region, source, is_global, accuracy_score, created_at)
+       VALUES ($1,$1,'global','USDA',true,1.0,NOW())
+       ON CONFLICT (name_en) DO UPDATE SET region='global', source='USDA', updated_at=NOW()`,
+      [food.toLowerCase()]
+    );
+
+    res.json({ success: true, nutrients });
+  } catch (err: any) {
+    console.error("❌ USDA Sync Error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+app.use("/", usdaSyncRoute);
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 3.2 running on port ${port}`);
+  console.log(`✅ FitAI Backend 4.0 Hybrid running on port ${port}`);
 });
