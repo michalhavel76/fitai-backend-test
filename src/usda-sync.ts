@@ -54,6 +54,8 @@ router.post("/usda-sync", async (req, res) => {
       if (name.includes("water")) nutrients.water = val;
     });
 
+    // 🧩 TypeScript fix – ignore Prisma auto-id warning
+    // @ts-ignore
     const updated = await prisma.foods.upsert({
       where: { name_en: food.toLowerCase() },
       update: nutrients,
@@ -67,6 +69,7 @@ router.post("/usda-sync", async (req, res) => {
       },
     });
 
+    console.log("✅ USDA Sync complete:", updated.name_en);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     console.error("❌ USDA Sync Error:", err.message);
