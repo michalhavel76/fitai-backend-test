@@ -29,24 +29,27 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
-pool.connect()
+pool
+  .connect()
   .then(() => console.log("🟢 Connected to PostgreSQL"))
-  .catch(err => console.error("🔴 DB error:", err.message));
+  .catch((err) => console.error("🔴 DB error:", err.message));
 
 // --- TEST ---
 app.get("/ping", (_, res) => res.send("pong"));
 
 /* =======================================================
-   ⚡ SUPER FAST DETECT (meal vs product) 
+   ⚡ FAST DETECT (meal vs product)
 ======================================================= */
 app.post("/detectSceneType", async (req, res) => {
   try {
     const { image } = req.body;
     if (!image) return res.json({ success: false, type: "meal" });
 
-    // Promise race – AI má max 3s
     const timeout = new Promise((resolve) =>
-      setTimeout(() => resolve({ success: false, type: "meal", timeout: true }), 3000)
+      setTimeout(
+        () => resolve({ success: false, type: "meal", timeout: true }),
+        3000
+      )
     );
 
     const aiCall = (async () => {
@@ -105,7 +108,10 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         {
           role: "user",
           content: [
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+            },
           ],
         },
       ],
@@ -142,14 +148,21 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         const newFood = {
           name_en: f.food_name,
           name_cz: f.food_name,
-          kcal: f.nf_calories,
-          protein: f.nf_protein,
-          carbs: f.nf_total_carbohydrate,
-          fat: f.nf_total_fat,
+          kcal: Number(f.nf_calories) || 0,
+          protein: Number(f.nf_protein) || 0,
+          carbs: Number(f.nf_total_carbohydrate) || 0,
+          fat: Number(f.nf_total_fat) || 0,
         };
         await pool.query(
           "INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat) VALUES ($1,$2,$3,$4,$5,$6)",
-          [newFood.name_en, newFood.name_cz, newFood.kcal, newFood.protein, newFood.carbs, newFood.fat]
+          [
+            newFood.name_en,
+            newFood.name_cz,
+            newFood.kcal,
+            newFood.protein,
+            newFood.carbs,
+            newFood.fat,
+          ]
         );
         items.push(newFood);
       } catch (err: any) {
@@ -159,10 +172,10 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 
     const totals = items.reduce(
       (acc, i) => {
-        acc.kcal += i.kcal || 0;
-        acc.protein += i.protein || 0;
-        acc.carbs += i.carbs || 0;
-        acc.fat += i.fat || 0;
+        acc.kcal += Number(i.kcal) || 0;
+        acc.protein += Number(i.protein) || 0;
+        acc.carbs += Number(i.carbs) || 0;
+        acc.fat += Number(i.fat) || 0;
         return acc;
       },
       { kcal: 0, protein: 0, carbs: 0, fat: 0 }
@@ -183,6 +196,30 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   }
 });
 
+/* =======================================================
+   🔍 SUGGEST ENDPOINT (vyhledávání potravin při psaní)
+======================================================= */
+app.get("/suggest", async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query || typeof query !== "string") return res.json([]);
+
+    const results = await pool.query(
+      `SELECT id, name_cz, name_en, kcal, protein, carbs, fat 
+       FROM foods 
+       WHERE LOWER(name_cz) LIKE LOWER($1) OR LOWER(name_en) LIKE LOWER($1)
+       ORDER BY name_cz ASC 
+       LIMIT 10`,
+      [`%${query}%`]
+    );
+
+    res.json(results.rows || []);
+  } catch (err: any) {
+    console.error("Suggest error:", err.message);
+    res.json([]);
+  }
+});
+
 app.listen(port, () => {
-  console.log(`✅ Fast FitAI backend on port ${port}`);
+  console.log(`✅ FitAI Backend Cloud 2.0 running on port ${port}`);
 });
