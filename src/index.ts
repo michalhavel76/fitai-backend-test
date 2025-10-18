@@ -46,10 +46,7 @@ app.post("/detectSceneType", async (req, res) => {
     if (!image) return res.json({ success: false, type: "meal" });
 
     const timeout = new Promise((resolve) =>
-      setTimeout(
-        () => resolve({ success: false, type: "meal", timeout: true }),
-        3000
-      )
+      setTimeout(() => resolve({ success: false, type: "meal", timeout: true }), 3000)
     );
 
     const aiCall = (async () => {
@@ -197,26 +194,90 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 });
 
 /* =======================================================
-   🔍 SUGGEST ENDPOINT (vyhledávání potravin při psaní)
+   🔍 SUGGEST ENDPOINT (chytré vyhledávání + fallback + cache)
 ======================================================= */
+const suggestCache = new Map<string, { data: any[]; time: number }>();
+const CACHE_TTL = 3000; // 3 sekundy
+
 app.get("/suggest", async (req, res) => {
   try {
     const { query } = req.query;
     if (!query || typeof query !== "string") return res.json([]);
 
-    const results = await pool.query(
-      `SELECT id, name_cz, name_en, kcal, protein, carbs, fat 
+    const lowerQ = query.toLowerCase();
+
+    // 🧠 1️⃣ CACHE
+    const cached = suggestCache.get(lowerQ);
+    if (cached && Date.now() - cached.time < CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
+    // 🗄️ 2️⃣ LOKÁLNÍ DB
+    const local = await pool.query(
+      `SELECT id, name_cz, name_en, kcal, protein, carbs, fat
        FROM foods 
        WHERE LOWER(name_cz) LIKE LOWER($1) OR LOWER(name_en) LIKE LOWER($1)
-       ORDER BY name_cz ASC 
+       ORDER BY name_cz ASC
        LIMIT 10`,
-      [`%${query}%`]
+      [`%${lowerQ}%`]
     );
 
-    res.json(results.rows || []);
+    if (local.rows.length > 0) {
+      suggestCache.set(lowerQ, { data: local.rows, time: Date.now() });
+      return res.json(local.rows);
+    }
+
+    // 🌐 3️⃣ FALLBACK – Nutritionix
+    try {
+      const nutriResp = await axios.post(
+        "https://trackapi.nutritionix.com/v2/natural/nutrients",
+        { query },
+        {
+          headers: {
+            "x-app-id": NUTRITIONIX_APP_ID!,
+            "x-app-key": NUTRITIONIX_API_KEY!,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!nutriResp.data.foods || nutriResp.data.foods.length === 0) {
+        return res.json([]);
+      }
+
+      const f = nutriResp.data.foods[0];
+      const newFood = {
+        name_en: f.food_name,
+        name_cz: f.food_name,
+        kcal: Number(f.nf_calories) || 0,
+        protein: Number(f.nf_protein) || 0,
+        carbs: Number(f.nf_total_carbohydrate) || 0,
+        fat: Number(f.nf_total_fat) || 0,
+      };
+
+      // 💾 uložit do DB
+      await pool.query(
+        "INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat) VALUES ($1,$2,$3,$4,$5,$6)",
+        [
+          newFood.name_en,
+          newFood.name_cz,
+          newFood.kcal,
+          newFood.protein,
+          newFood.carbs,
+          newFood.fat,
+        ]
+      );
+
+      // ⚡ uložit i do cache a vrátit
+      suggestCache.set(lowerQ, { data: [newFood], time: Date.now() });
+      return res.json([newFood]);
+    } catch (err: any) {
+      console.error("Nutritionix fallback error:", err.message);
+      return res.json([]);
+    }
   } catch (err: any) {
     console.error("Suggest error:", err.message);
-    res.json([]);
+    return res.json([]);
   }
 });
 
