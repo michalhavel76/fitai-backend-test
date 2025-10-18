@@ -1,20 +1,21 @@
-// =======================================================
-// FitAI 4.2 – Data Hub Foundation
-// Created safely 2025-10-18
-// =======================================================
+// ============================================
+// FitAI 4.4 – NeverZero + Legal Trace Engine
+// ============================================
 
 generator client {
   provider = "prisma-client-js"
 }
 
+// 🔗 Datasource: hlavní Railway DB + lokální shadow (SQLite)
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
-// =======================================================
-// 🍽️ Main Foods Table – FitAI Global Food DB (v4.0 + v4.1)
-// =======================================================
+// ============================================
+// 🥗 Main Table – Foods
+// ============================================
 model foods {
   id                  Int       @id @default(autoincrement())
   name_en             String?   @unique(map: "unique_name_en")
@@ -73,19 +74,36 @@ model foods {
   water               Float?
   zinc                Float?
   updated_at          DateTime? @default(now()) @db.Timestamp(6)
+
+  // 🔗 Relation – audit log
+  audit_logs food_audit_log[]
 }
 
-// =======================================================
-// 🧠 FitAI 4.2 – Data Hub Foundation
-// Ukládá globální průměrné hodnoty živin podle regionu
-// =======================================================
+// ============================================
+// 📊 Global Reference Data – FitAI DataHub
+// ============================================
 model FitAI_DataHub {
-  id             Int      @id @default(autoincrement())
-  nutrient_key   String   @unique
+  id             Int       @id @default(autoincrement())
+  nutrient_key   String    @unique
   avg_value      Float
-  region         String?  @default("global")
-  samples_count  Int      @default(0)
-  accuracy_score Float    @default(0.85)
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  region         String?   @default("global")
+  samples_count  Int?      @default(0)
+  accuracy_score Float?    @default(0.85)
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  updated_at     DateTime? @default(now()) @updatedAt @db.Timestamp(6)
+}
+
+// ============================================
+// ⚖️ Legal Trace – Food Audit Log
+// ============================================
+model food_audit_log {
+  id                Int       @id @default(autoincrement())
+  food_id           Int
+  changed_fields    Json
+  source_chain      Json
+  reliability_score Float
+  timestamp         DateTime  @default(now())
+
+  // 🔗 Relation – back to foods
+  food foods @relation(fields: [food_id], references: [id], onDelete: Cascade)
 }
