@@ -1,3 +1,8 @@
+// =======================================================
+// FitAI Backend 4.1 – Smart USDA + Nutrient Fill Integration
+// Extended safely – 2025-10-18
+// =======================================================
+
 import express from "express";
 import multer from "multer";
 import cors from "cors";
@@ -7,6 +12,7 @@ import OpenAI from "openai";
 import axios from "axios";
 import { Pool } from "pg";
 import usdaSyncRoute from "./usda-sync";
+import nutrientFill from "./nutrient-fill"; // ✅ NEW (FitAI 4.1)
 
 dotenv.config();
 
@@ -340,13 +346,18 @@ app.post("/usda-sync", async (req, res) => {
     const USDA_SEARCH_URL = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}`;
 
     console.log("🔎 Searching USDA for:", food);
-    const searchRes = await axios.get(`${USDA_SEARCH_URL}&query=${encodeURIComponent(food)}&pageSize=1`);
+    const searchRes = await axios.get(
+      `${USDA_SEARCH_URL}&query=${encodeURIComponent(food)}&pageSize=1`
+    );
     const searchData = searchRes.data;
 
-    if (!searchData.foods?.length) return res.status(404).json({ error: "No match found in USDA." });
+    if (!searchData.foods?.length)
+      return res.status(404).json({ error: "No match found in USDA." });
 
     const fdcId = searchData.foods[0].fdcId;
-    const foodRes = await axios.get(`https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_API_KEY}`);
+    const foodRes = await axios.get(
+      `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_API_KEY}`
+    );
     const foodData = foodRes.data;
 
     const nutrients: Record<string, number> = {};
@@ -370,7 +381,8 @@ app.post("/usda-sync", async (req, res) => {
       if (name.includes("selenium")) nutrients.selenium = val;
       if (name.includes("sodium")) nutrients.sodium = val;
       if (name.includes("cholesterol")) nutrients.cholesterol = val;
-      if (name.includes("monounsaturated")) nutrients.monounsaturated_fat = val;
+      if (name.includes("monounsaturated"))
+        nutrients.monounsaturated_fat = val;
       if (name.includes("polyunsaturated")) nutrients.polyunsaturated_fat = val;
       if (name.includes("trans")) nutrients.trans_fat = val;
       if (name.includes("water")) nutrients.water = val;
@@ -389,7 +401,14 @@ app.post("/usda-sync", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 app.use("/", usdaSyncRoute);
+
+// =======================================================
+// 🧠 NUTRIENT FILL ENGINE (FitAI 4.1)
+// =======================================================
+app.use("/api", nutrientFill); // ✅ NEW route added safely
+
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 4.0 Hybrid running on port ${port}`);
+  console.log(`✅ FitAI Backend 4.1 Hybrid running on port ${port}`);
 });

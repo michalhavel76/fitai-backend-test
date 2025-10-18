@@ -1,3 +1,8 @@
+// =======================================================
+// FitAI 4.2 – Data Hub Foundation
+// Created safely 2025-10-18
+// =======================================================
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,65 +12,80 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =======================================================
+// 🍽️ Main Foods Table – FitAI Global Food DB (v4.0 + v4.1)
+// =======================================================
 model foods {
-  id                 Int      @id @default(autoincrement())
-  name_en            String?
-  name_cz            String?
-  category           String?
-  origin             String?
-  kcal               Float?
-  protein            Float?
-  carbs              Float?
-  fat                Float?
-  fiber              Float?
-  sugar              Float?
-  sodium             Float?
-  vitamin_a          Float?
-  vitamin_c          Float?
-  calcium            Float?
-  iron               Float?
-  source             String?
-  image_url          String?
-  lang               Json?
-  created_at         DateTime? @default(now())
-
-  // --- 🌍 FitAI 4.0 – Globální a mikroživinová rozšíření ---
-  vitamin_d          Float?
-  vitamin_e          Float?
-  vitamin_k          Float?
-  thiamin_b1         Float?
-  riboflavin_b2      Float?
-  niacin_b3          Float?
-  pantothenic_b5     Float?
-  vitamin_b6         Float?
-  folate_b9          Float?
-  vitamin_b12        Float?
-  biotin_b7          Float?
-  choline            Float?
-  magnesium          Float?
-  phosphorus         Float?
-  potassium          Float?
-  zinc               Float?
-  copper             Float?
-  manganese          Float?
-  selenium           Float?
-  iodine             Float?
-  chromium           Float?
-  molybdenum         Float?
-  omega_3            Float?
-  omega_6            Float?
-  cholesterol        Float?
-  trans_fat          Float?
+  id                  Int       @id @default(autoincrement())
+  name_en             String?   @unique(map: "unique_name_en")
+  name_cz             String?
+  category            String?
+  origin              String?
+  kcal                Float?
+  protein             Float?
+  carbs               Float?
+  fat                 Float?
+  fiber               Float?
+  sugar               Float?
+  sodium              Float?
+  vitamin_a           Float?
+  vitamin_c           Float?
+  calcium             Float?
+  iron                Float?
+  source              String?
+  image_url           String?
+  lang                Json?
+  created_at          DateTime? @default(now())
+  accuracy_score      Float?    @default(0.0)
+  alcohol             Float?
+  biotin_b7           Float?
+  caffeine            Float?
+  cholesterol         Float?
+  choline             Float?
+  chromium            Float?
+  composition         Json?
+  copper              Float?
+  dish_name           String?
+  folate_b9           Float?
+  iodine              Float?
+  is_global           Boolean?  @default(false)
+  magnesium           Float?
+  manganese           Float?
+  molybdenum          Float?
   monounsaturated_fat Float?
+  niacin_b3           Float?
+  omega_3             Float?
+  omega_6             Float?
+  pantothenic_b5      Float?
+  phosphorus          Float?
   polyunsaturated_fat Float?
-  caffeine           Float?
-  alcohol            Float?
-  water              Float?
+  potassium           Float?
+  region              String?   @default("global")
+  riboflavin_b2       Float?
+  selenium            Float?
+  thiamin_b1          Float?
+  trans_fat           Float?
+  vitamin_b12         Float?
+  vitamin_b6          Float?
+  vitamin_d           Float?
+  vitamin_e           Float?
+  vitamin_k           Float?
+  water               Float?
+  zinc                Float?
+  updated_at          DateTime? @default(now()) @db.Timestamp(6)
+}
 
-  // --- 🍽️ FitAI Global Dishes ---
-  dish_name          String?
-  region             String?   @default("global")
-  composition        Json?
-  accuracy_score     Float?    @default(0.0)
-  is_global          Boolean?  @default(false)
+// =======================================================
+// 🧠 FitAI 4.2 – Data Hub Foundation
+// Ukládá globální průměrné hodnoty živin podle regionu
+// =======================================================
+model FitAI_DataHub {
+  id             Int      @id @default(autoincrement())
+  nutrient_key   String   @unique
+  avg_value      Float
+  region         String?  @default("global")
+  samples_count  Int      @default(0)
+  accuracy_score Float    @default(0.85)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 }
