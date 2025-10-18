@@ -54,22 +54,32 @@ router.post("/usda-sync", async (req, res) => {
       if (name.includes("water")) nutrients.water = val;
     });
 
-    // 🧩 TypeScript fix – ignore Prisma auto-id warning
-    // @ts-ignore
-    const updated = await prisma.foods.upsert({
+    // 🧩 Check if record already exists
+    const existing = await prisma.foods.findFirst({
       where: { name_en: food.toLowerCase() },
-      update: nutrients,
-      create: {
-        name_en: food.toLowerCase(),
-        ...nutrients,
-        source: "USDA",
-        region: "global",
-        is_global: true,
-        accuracy_score: 1.0,
-      },
     });
 
-    console.log("✅ USDA Sync complete:", updated.name_en);
+    let updated;
+    if (existing) {
+      updated = await prisma.foods.update({
+        where: { id: existing.id },
+        data: nutrients,
+      });
+      console.log("♻️ Updated existing food:", updated.name_en);
+    } else {
+      updated = await prisma.foods.create({
+        data: {
+          name_en: food.toLowerCase(),
+          ...nutrients,
+          source: "USDA",
+          region: "global",
+          is_global: true,
+          accuracy_score: 1.0,
+        },
+      });
+      console.log("🆕 Created new food:", updated.name_en);
+    }
+
     res.json({ success: true, data: updated });
   } catch (err: any) {
     console.error("❌ USDA Sync Error:", err.message);
