@@ -232,7 +232,7 @@ app.get("/suggest", async (req, res) => {
 });
 
 /* =======================================================
-   ⚖️ CALCULATE SINGLE FOOD (přepočet při editaci + 100% makra)
+   ⚖️ CALCULATE SINGLE FOOD (včetně fallbacku na full_nutrients)
 ======================================================= */
 app.post("/calculate-food", async (req, res) => {
   try {
@@ -276,11 +276,14 @@ app.post("/calculate-food", async (req, res) => {
     const f = nutriResp.data.foods?.[0];
     if (!f) return res.json({ success: false, error: "No food found" });
 
-    // Přesné převody + fallback na 0
-    const kcal = Number(f.nf_calories) || 0;
-    const protein = Number(f.nf_protein) || 0;
-    const carbs = Number(f.nf_total_carbohydrate) || 0;
-    const fat = Number(f.nf_total_fat) || 0;
+    // 🔍 Přesné převody + fallback na full_nutrients
+    const findNutrient = (id: number) =>
+      f.full_nutrients?.find((n: any) => n.attr_id === id)?.value || 0;
+
+    const kcal = Number(f.nf_calories) || findNutrient(208) || 0; // kcal
+    const protein = Number(f.nf_protein) || findNutrient(203) || 0;
+    const carbs = Number(f.nf_total_carbohydrate) || findNutrient(205) || 0;
+    const fat = Number(f.nf_total_fat) || findNutrient(204) || 0;
 
     const newFood = {
       name_en: f.food_name,
@@ -293,7 +296,7 @@ app.post("/calculate-food", async (req, res) => {
       source: "nutritionix",
     };
 
-    // 💾 Uložení pro příště
+    // 💾 Uložení do DB
     await pool.query(
       `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
@@ -309,6 +312,7 @@ app.post("/calculate-food", async (req, res) => {
       ]
     );
 
+    // 📊 Výpočet pro danou gramáž
     const result = {
       calories: (kcal / 100) * g,
       protein: (protein / 100) * g,
