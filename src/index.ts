@@ -29,53 +29,9 @@ const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
 pool.connect()
   .then(() => console.log("🟢 Connected to PostgreSQL"))
-  .catch(err => console.error("🔴 DB error:", err.message));
+  .catch((err) => console.error("🔴 DB error:", err.message));
 
-// --- TEST ---
 app.get("/ping", (_, res) => res.send("pong"));
-
-/* =======================================================
-   ⚡ FAST DETECT (meal vs product)
-======================================================= */
-app.post("/detectSceneType", async (req, res) => {
-  try {
-    const { image } = req.body;
-    if (!image) return res.json({ success: false, type: "meal" });
-
-    const timeout = new Promise((resolve) =>
-      setTimeout(() => resolve({ success: false, type: "meal", timeout: true }), 3000)
-    );
-
-    const aiCall = (async () => {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You classify quickly: respond ONLY JSON {type:'meal'|'product'}.",
-          },
-          {
-            role: "user",
-            content: [{ type: "image_url", image_url: { url: image } }],
-          },
-        ],
-        max_tokens: 10,
-        temperature: 0,
-        response_format: { type: "json_object" },
-      });
-
-      const parsed = JSON.parse(response.choices[0].message.content || "{}");
-      return { success: true, type: parsed.type || "meal" };
-    })();
-
-    const result = (await Promise.race([timeout, aiCall])) as any;
-    console.log("🧠 DETECT result:", result);
-    res.json(result);
-  } catch (err: any) {
-    console.error("❌ detectSceneType error:", err.message);
-    res.json({ success: false, type: "meal" });
-  }
-});
 
 /* =======================================================
    🍽️ ANALYZE PLATE
@@ -90,11 +46,14 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       messages: [
         {
           role: "system",
-          content: "You are a nutrition expert. Return JSON with an 'ingredients' array of foods visible on the plate.",
+          content:
+            "You are a nutrition expert. Return JSON with an 'ingredients' array of foods visible on the plate.",
         },
         {
           role: "user",
-          content: [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } }],
+          content: [
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+          ],
         },
       ],
       response_format: { type: "json_object" },
@@ -105,15 +64,18 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
     const items: any[] = [];
 
     for (const ing of ingredients) {
+      // 1️⃣ Hledání v DB
       const local = await pool.query(
         "SELECT * FROM foods WHERE LOWER(name_cz) LIKE LOWER($1) OR LOWER(name_en) LIKE LOWER($1) LIMIT 1",
         [`%${ing}%`]
       );
+
       if (local.rows.length > 0) {
         items.push(local.rows[0]);
         continue;
       }
 
+      // 2️⃣ Fallback Nutritionix
       try {
         const nutriResp = await axios.post(
           "https://trackapi.nutritionix.com/v2/natural/nutrients",
@@ -126,19 +88,59 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
             },
           }
         );
+
         const f = nutriResp.data.foods[0];
         const newFood = {
           name_en: f.food_name,
           name_cz: f.food_name,
+          category: f.tags?.item || null,
+          origin: f.brand_name || null,
           kcal: Number(f.nf_calories) || 0,
           protein: Number(f.nf_protein) || 0,
           carbs: Number(f.nf_total_carbohydrate) || 0,
           fat: Number(f.nf_total_fat) || 0,
+          fiber: Number(f.full_nutrients?.find((n: any) => n.attr_id === 291)?.value || 0),
+          sugar: Number(f.full_nutrients?.find((n: any) => n.attr_id === 269)?.value || 0),
+          sodium: Number(f.full_nutrients?.find((n: any) => n.attr_id === 307)?.value || 0),
+          vitamin_a: Number(f.full_nutrients?.find((n: any) => n.attr_id === 320)?.value || 0),
+          vitamin_c: Number(f.full_nutrients?.find((n: any) => n.attr_id === 401)?.value || 0),
+          calcium: Number(f.full_nutrients?.find((n: any) => n.attr_id === 301)?.value || 0),
+          iron: Number(f.full_nutrients?.find((n: any) => n.attr_id === 303)?.value || 0),
+          source: "nutritionix",
+          image_url: f.photo?.thumb || null,
+          lang: { detected: "en" },
         };
+
         await pool.query(
-          "INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat) VALUES ($1,$2,$3,$4,$5,$6)",
-          [newFood.name_en, newFood.name_cz, newFood.kcal, newFood.protein, newFood.carbs, newFood.fat]
+          `INSERT INTO foods (
+            name_en, name_cz, category, origin, kcal, protein, carbs, fat,
+            fiber, sugar, sodium, vitamin_a, vitamin_c, calcium, iron,
+            source, image_url, lang, created_at
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()
+          )`,
+          [
+            newFood.name_en,
+            newFood.name_cz,
+            newFood.category,
+            newFood.origin,
+            newFood.kcal,
+            newFood.protein,
+            newFood.carbs,
+            newFood.fat,
+            newFood.fiber,
+            newFood.sugar,
+            newFood.sodium,
+            newFood.vitamin_a,
+            newFood.vitamin_c,
+            newFood.calcium,
+            newFood.iron,
+            newFood.source,
+            newFood.image_url,
+            JSON.stringify(newFood.lang),
+          ]
         );
+
         items.push(newFood);
       } catch (err: any) {
         console.error("Nutritionix error:", err.message);
@@ -172,88 +174,109 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 });
 
 /* =======================================================
-   🔍 SMART DUAL SEARCH (DB + Nutritionix)
+   🔍 SMART SUGGEST (DB + Nutritionix)
 ======================================================= */
+const suggestCache = new Map<string, { data: any[]; time: number }>();
+const CACHE_TTL = 5000;
+
 app.get("/suggest", async (req, res) => {
   try {
     const { query } = req.query;
     if (!query || typeof query !== "string") return res.json([]);
+    const lowerQ = query.toLowerCase();
 
-    const q = query.toLowerCase();
+    // 🧠 Cache
+    const cached = suggestCache.get(lowerQ);
+    if (cached && Date.now() - cached.time < CACHE_TTL) return res.json(cached.data);
 
-    // 1️⃣ Hledání v DB
-    const dbPromise = pool.query(
-      `SELECT id, name_cz, name_en, kcal, protein, carbs, fat
-       FROM foods 
+    // 1️⃣ DB lookup
+    const local = await pool.query(
+      `SELECT * FROM foods 
        WHERE LOWER(name_cz) LIKE LOWER($1) OR LOWER(name_en) LIKE LOWER($1)
-       ORDER BY name_cz ASC 
-       LIMIT 15`,
-      [`%${q}%`]
+       ORDER BY name_cz ASC LIMIT 10`,
+      [`%${lowerQ}%`]
     );
 
-    // 2️⃣ Současně spustíme Nutritionix (běží paralelně)
-    const nutriPromise = axios
-      .post(
-        "https://trackapi.nutritionix.com/v2/natural/nutrients",
-        { query },
-        {
-          headers: {
-            "x-app-id": NUTRITIONIX_APP_ID!,
-            "x-app-key": NUTRITIONIX_API_KEY!,
-            "Content-Type": "application/json",
-          },
-        }
-      )
-      .then(async (nutriResp) => {
-        if (!nutriResp.data.foods || nutriResp.data.foods.length === 0) return [];
-        const results = nutriResp.data.foods.map((f: any) => ({
-          name_en: f.food_name,
-          name_cz: f.food_name,
-          kcal: Number(f.nf_calories) || 0,
-          protein: Number(f.nf_protein) || 0,
-          carbs: Number(f.nf_total_carbohydrate) || 0,
-          fat: Number(f.nf_total_fat) || 0,
-        }));
+    if (local.rows.length > 0) {
+      suggestCache.set(lowerQ, { data: local.rows, time: Date.now() });
+      return res.json(local.rows);
+    }
 
-        // uložíme první výsledek do DB
-        const f = results[0];
-        await pool.query(
-          "INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
-          [f.name_en, f.name_cz, f.kcal, f.protein, f.carbs, f.fat]
-        );
-        return results;
-      })
-      .catch(() => []);
-
-    // 3️⃣ Počkejme jen na DB (rychlá odpověď)
-    const local = await dbPromise;
-    let combined = local.rows;
-
-    // 4️⃣ Jakmile Nutritionix doběhne, přidej výsledky (neblokuje odpověď)
-    nutriPromise.then((online) => {
-      if (online.length > 0) {
-        const unique = [
-          ...combined,
-          ...online.filter(
-            (n) =>
-              !combined.some(
-                (c) =>
-                  c.name_en.toLowerCase() === n.name_en.toLowerCase() ||
-                  c.name_cz.toLowerCase() === n.name_cz.toLowerCase()
-              )
-          ),
-        ];
-        combined = unique;
+    // 2️⃣ Nutritionix fallback
+    const nutriResp = await axios.post(
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
+      { query },
+      {
+        headers: {
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!,
+          "Content-Type": "application/json",
+        },
       }
-    });
+    );
 
-    res.json(combined);
+    if (!nutriResp.data.foods || nutriResp.data.foods.length === 0) return res.json([]);
+
+    const f = nutriResp.data.foods[0];
+    const newFood = {
+      name_en: f.food_name,
+      name_cz: f.food_name,
+      category: f.tags?.item || null,
+      origin: f.brand_name || null,
+      kcal: Number(f.nf_calories) || 0,
+      protein: Number(f.nf_protein) || 0,
+      carbs: Number(f.nf_total_carbohydrate) || 0,
+      fat: Number(f.nf_total_fat) || 0,
+      fiber: Number(f.full_nutrients?.find((n: any) => n.attr_id === 291)?.value || 0),
+      sugar: Number(f.full_nutrients?.find((n: any) => n.attr_id === 269)?.value || 0),
+      sodium: Number(f.full_nutrients?.find((n: any) => n.attr_id === 307)?.value || 0),
+      vitamin_a: Number(f.full_nutrients?.find((n: any) => n.attr_id === 320)?.value || 0),
+      vitamin_c: Number(f.full_nutrients?.find((n: any) => n.attr_id === 401)?.value || 0),
+      calcium: Number(f.full_nutrients?.find((n: any) => n.attr_id === 301)?.value || 0),
+      iron: Number(f.full_nutrients?.find((n: any) => n.attr_id === 303)?.value || 0),
+      source: "nutritionix",
+      image_url: f.photo?.thumb || null,
+      lang: { detected: "en" },
+    };
+
+    await pool.query(
+      `INSERT INTO foods (
+        name_en, name_cz, category, origin, kcal, protein, carbs, fat,
+        fiber, sugar, sodium, vitamin_a, vitamin_c, calcium, iron,
+        source, image_url, lang, created_at
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()
+      )`,
+      [
+        newFood.name_en,
+        newFood.name_cz,
+        newFood.category,
+        newFood.origin,
+        newFood.kcal,
+        newFood.protein,
+        newFood.carbs,
+        newFood.fat,
+        newFood.fiber,
+        newFood.sugar,
+        newFood.sodium,
+        newFood.vitamin_a,
+        newFood.vitamin_c,
+        newFood.calcium,
+        newFood.iron,
+        newFood.source,
+        newFood.image_url,
+        JSON.stringify(newFood.lang),
+      ]
+    );
+
+    suggestCache.set(lowerQ, { data: [newFood], time: Date.now() });
+    return res.json([newFood]);
   } catch (err: any) {
-    console.error("Suggest error:", err.message);
+    console.error("❌ Suggest error:", err.message);
     res.json([]);
   }
 });
 
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 3.05 – Smart Dual Search running on port ${port}`);
+  console.log(`✅ FitAI Backend 3.07 running on port ${port}`);
 });
