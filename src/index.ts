@@ -93,16 +93,17 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         const newFood = {
           name_en: f.food_name,
           name_cz: f.food_name,
-          kcal: Number(f.nf_calories) || 0,
-          protein: Number(f.nf_protein) || 0,
-          carbs: Number(f.nf_total_carbohydrate) || 0,
-          fat: Number(f.nf_total_fat) || 0,
-          image_url: f.photo?.thumb || "https://cdn-icons-png.flaticon.com/512/857/857681.png",
+          kcal: Number(f.nf_calories),
+          protein: Number(f.nf_protein),
+          carbs: Number(f.nf_total_carbohydrate),
+          fat: Number(f.nf_total_fat),
+          image_url: f.photo?.thumb || null,
           source: "nutritionix",
         };
 
         await pool.query(
-          "INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())",
+          `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
           [
             newFood.name_en,
             newFood.name_cz,
@@ -148,7 +149,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 });
 
 /* =======================================================
-   🔍 SMART DUAL SUGGEST (DB + Nutritionix + image_url)
+   🔍 SUGGEST (DB → Nutritionix fallback)
 ======================================================= */
 const suggestCache = new Map<string, { data: any[]; time: number }>();
 const CACHE_TTL = 3000;
@@ -157,39 +158,30 @@ app.get("/suggest", async (req, res) => {
   try {
     const { query } = req.query;
     if (!query || typeof query !== "string") return res.json([]);
-    const lowerQ = query.toLowerCase().trim();
-    if (lowerQ.length < 3) return res.json([]);
 
+    const lowerQ = query.toLowerCase();
     const cached = suggestCache.get(lowerQ);
     if (cached && Date.now() - cached.time < CACHE_TTL) {
       return res.json(cached.data);
     }
 
-    // Lokální DB
+    // 1️⃣ Lokální DB
     const local = await pool.query(
       `SELECT id, name_cz, name_en, kcal, protein, carbs, fat, image_url 
        FROM foods 
        WHERE LOWER(name_cz) LIKE LOWER($1) OR LOWER(name_en) LIKE LOWER($1)
-       ORDER BY name_cz ASC 
-       LIMIT 10`,
+       ORDER BY name_cz ASC LIMIT 10`,
       [`%${lowerQ}%`]
     );
 
-    const localResults = local.rows.map((f: any) => ({
-      id: f.id,
-      name_en: f.name_en,
-      name_cz: f.name_cz,
-      kcal: f.kcal,
-      protein: f.protein,
-      carbs: f.carbs,
-      fat: f.fat,
-      source: "local",
-      image_url: f.image_url || "https://cdn-icons-png.flaticon.com/512/857/857681.png",
-    }));
+    if (local.rows.length > 0) {
+      suggestCache.set(lowerQ, { data: local.rows, time: Date.now() });
+      return res.json(local.rows);
+    }
 
-    // Nutritionix fallback
+    // 2️⃣ Nutritionix fallback
     const nutriResp = await axios.post(
-      "https://trackapi.nutritionix.com/v2/search/instant",
+      "https://trackapi.nutritionix.com/v2/natural/nutrients",
       { query },
       {
         headers: {
@@ -200,59 +192,39 @@ app.get("/suggest", async (req, res) => {
       }
     );
 
-    const foods = [
-      ...(nutriResp.data.common || []),
-      ...(nutriResp.data.branded || []),
-    ].slice(0, 10);
-
-    const onlineResults = foods.map((f: any) => ({
-      id: null,
-      name_en: f.food_name,
-      name_cz: f.food_name,
-      kcal: f.nf_calories ? Number(f.nf_calories) : null,
-      protein: f.nf_protein ? Number(f.nf_protein) : null,
-      carbs: f.nf_total_carbohydrate ? Number(f.nf_total_carbohydrate) : null,
-      fat: f.nf_total_fat ? Number(f.nf_total_fat) : null,
-      source: "nutritionix",
-      image_url: f.photo?.thumb || "https://cdn-icons-png.flaticon.com/512/857/857681.png",
-    }));
-
-    // Uložení nových položek
-    for (const food of onlineResults) {
-      const exists = await pool.query(
-        `SELECT 1 FROM foods WHERE LOWER(name_en) = LOWER($1) LIMIT 1`,
-        [food.name_en]
-      );
-      if (exists.rows.length === 0) {
-        await pool.query(
-          `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
-          [
-            food.name_en,
-            food.name_cz,
-            food.kcal,
-            food.protein,
-            food.carbs,
-            food.fat,
-            food.image_url,
-            food.source,
-          ]
-        );
-      }
+    if (!nutriResp.data.foods || nutriResp.data.foods.length === 0) {
+      return res.json([]);
     }
 
-    const combined = [
-      ...localResults,
-      ...onlineResults.filter(
-        (n: any) =>
-          !localResults.some(
-            (l: any) => l.name_en.toLowerCase() === n.name_en.toLowerCase()
-          )
-      ),
-    ];
+    const f = nutriResp.data.foods[0];
+    const newFood = {
+      name_en: f.food_name,
+      name_cz: f.food_name,
+      kcal: Number(f.nf_calories),
+      protein: Number(f.nf_protein),
+      carbs: Number(f.nf_total_carbohydrate),
+      fat: Number(f.nf_total_fat),
+      image_url: f.photo?.thumb || null,
+      source: "nutritionix",
+    };
 
-    suggestCache.set(lowerQ, { data: combined, time: Date.now() });
-    return res.json(combined);
+    await pool.query(
+      `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+      [
+        newFood.name_en,
+        newFood.name_cz,
+        newFood.kcal,
+        newFood.protein,
+        newFood.carbs,
+        newFood.fat,
+        newFood.image_url,
+        newFood.source,
+      ]
+    );
+
+    suggestCache.set(lowerQ, { data: [newFood], time: Date.now() });
+    return res.json([newFood]);
   } catch (err: any) {
     console.error("❌ Suggest error:", err.message);
     res.json([]);
@@ -260,32 +232,34 @@ app.get("/suggest", async (req, res) => {
 });
 
 /* =======================================================
-   ⚖️ CALCULATE SINGLE FOOD (používá se při editaci)
+   ⚖️ CALCULATE SINGLE FOOD (přepočet při editaci)
 ======================================================= */
 app.post("/calculate-food", async (req, res) => {
   try {
     const { food, grams } = req.body;
     if (!food) return res.json({ success: false, error: "Missing food name" });
+
+    const lowerFood = food.toLowerCase();
     const g = Number(grams) || 100;
 
-    // 1️⃣ zkusíme DB
+    // 1️⃣ Hledání v DB
     const local = await pool.query(
-      `SELECT * FROM foods WHERE LOWER(name_en) = LOWER($1) OR LOWER(name_cz) = LOWER($1) LIMIT 1`,
-      [food.toLowerCase()]
+      `SELECT * FROM foods WHERE LOWER(name_en) = $1 OR LOWER(name_cz) = $1 LIMIT 1`,
+      [lowerFood]
     );
 
     if (local.rows.length > 0) {
       const f = local.rows[0];
       const result = {
-        calories: (f.kcal / 100) * g,
-        protein: (f.protein / 100) * g,
-        carbs: (f.carbs / 100) * g,
-        fat: (f.fat / 100) * g,
+        calories: (Number(f.kcal) / 100) * g,
+        protein: (Number(f.protein) / 100) * g,
+        carbs: (Number(f.carbs) / 100) * g,
+        fat: (Number(f.fat) / 100) * g,
       };
-      return res.json({ success: true, name: f.name_en, result });
+      return res.json({ success: true, name: f.name_cz || f.name_en, result });
     }
 
-    // 2️⃣ fallback Nutritionix
+    // 2️⃣ Nutritionix fallback
     const nutriResp = await axios.post(
       "https://trackapi.nutritionix.com/v2/natural/nutrients",
       { query: food },
@@ -299,29 +273,40 @@ app.post("/calculate-food", async (req, res) => {
     );
 
     const f = nutriResp.data.foods[0];
-    const result = {
-      calories: (Number(f.nf_calories) / 100) * g,
-      protein: (Number(f.nf_protein) / 100) * g,
-      carbs: (Number(f.nf_total_carbohydrate) / 100) * g,
-      fat: (Number(f.nf_total_fat) / 100) * g,
+    const newFood = {
+      name_en: f.food_name,
+      name_cz: f.food_name,
+      kcal: Number(f.nf_calories),
+      protein: Number(f.nf_protein),
+      carbs: Number(f.nf_total_carbohydrate),
+      fat: Number(f.nf_total_fat),
+      image_url: f.photo?.thumb || null,
+      source: "nutritionix",
     };
 
     await pool.query(
       `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
       [
-        f.food_name,
-        f.food_name,
-        Number(f.nf_calories),
-        Number(f.nf_protein),
-        Number(f.nf_total_carbohydrate),
-        Number(f.nf_total_fat),
-        f.photo?.thumb || "https://cdn-icons-png.flaticon.com/512/857/857681.png",
-        "nutritionix",
+        newFood.name_en,
+        newFood.name_cz,
+        newFood.kcal,
+        newFood.protein,
+        newFood.carbs,
+        newFood.fat,
+        newFood.image_url,
+        newFood.source,
       ]
     );
 
-    return res.json({ success: true, name: f.food_name, result });
+    const result = {
+      calories: (newFood.kcal / 100) * g,
+      protein: (newFood.protein / 100) * g,
+      carbs: (newFood.carbs / 100) * g,
+      fat: (newFood.fat / 100) * g,
+    };
+
+    return res.json({ success: true, name: newFood.name_cz, result });
   } catch (err: any) {
     console.error("❌ Calculate error:", err.message);
     res.json({ success: false, error: "Calculation failed" });
@@ -329,5 +314,5 @@ app.post("/calculate-food", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 3.1 running on port ${port}`);
+  console.log(`✅ FitAI Backend 3.2 running on port ${port}`);
 });
