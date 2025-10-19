@@ -1,7 +1,7 @@
 // =======================================================
-// FitAI Backend 4.8 – Scientific Calibration System
+// FitAI Backend 4.9 – Scientific Calibration System
 // Global Food Normalization & Accuracy Framework
-// Full Safe + Scientific Version – 2025-10-19
+// Full Safe Build – 2025-10-19
 // =======================================================
 
 import express from "express";
@@ -15,18 +15,19 @@ import { Pool } from "pg";
 
 // 🌍 Routes
 import usdaSyncRoute from "./usda-sync";
-import nutrientFill from "./nutrient-fill";          // ✅ FitAI 4.1
-import datahubEngineRoute from "./datahub-engine";   // ✅ FitAI 4.2
-import neverZeroRouter from "./neverzero-engine";    // ✅ FitAI 4.4
+import nutrientFill from "./nutrient-fill";
+import datahubEngineRoute from "./datahub-engine";
+import neverZeroRouter from "./neverzero-engine";
 import searchFoodRoute from "./search-food";
 import verifySourceRoute from "./verify-source";
 import normalizeRoute from "./normalize-engine";
-import normalizeSmart from "./normalize-engine";     // ✅ FitAI Normalize 1.3
+import normalizeSmart from "./normalize-engine";
 import verifyAccuracy from "./verify-accuracy";
-import scientificCorrection from "./scientific-correction";
 
-// 🧬 NEW IN 4.8
-import { scientificCalibrate } from "./scientific-calibration.js";
+// @ts-ignore – JS module (no declaration)
+import scientificCorrection from "./scientific-correction";
+// @ts-ignore – JS module (no declaration)
+import { scientificCalibrate } from "./scientific-calibration";
 
 // =======================================================
 // 🌍 INIT SERVER + CONFIG
@@ -149,7 +150,6 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
           ]
         );
 
-        // ✅ Auto vitamin fill
         await axios.post("http://localhost:4000/api/nutrient-fill", {
           food: newFood.name_en,
         });
@@ -265,13 +265,13 @@ app.post("/api/scientific-calibrate", scientificCalibrate);
 // 🔍 ROUTES
 // =======================================================
 app.use("/", usdaSyncRoute);
-app.use("/", datahubEngineRoute); // ✅ FitAI 4.2 – DataHub Refresh
-app.use("/api", nutrientFill);    // ✅ FitAI 4.1 – Nutrient Fill
-app.use("/", neverZeroRouter);    // ✅ FitAI 4.4 – NeverZero + Legal Trace
+app.use("/", datahubEngineRoute);
+app.use("/api", nutrientFill);
+app.use("/", neverZeroRouter);
 app.use("/", searchFoodRoute);
 app.use("/", verifySourceRoute);
 app.use("/", normalizeRoute);
-app.use("/", normalizeSmart);     // ✅ FitAI Normalize 1.3 – Portion Correction
+app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
 app.use("/", scientificCorrection);
 
@@ -279,5 +279,5 @@ app.use("/", scientificCorrection);
 // 🚀 SERVER START
 // =======================================================
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 4.8 running on port ${port}`);
+  console.log(`✅ FitAI Backend 4.9 running on port ${port}`);
 });
