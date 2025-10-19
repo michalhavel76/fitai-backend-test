@@ -1,145 +1,153 @@
-// ============================================================
-// FitAI 4.7 – Scientific Correction Pro
-// Advanced validation of 100 g nutrition values
-// ============================================================
+// =======================================================
+// FitAI 4.8 – Scientific Correction Engine (Auto-Compatible)
+// Works with: import scientificCorrection from "./scientific-correction";
+// Full Production Version – 2025-10-19
+// =======================================================
 
-import express from "express";
-import { PrismaClient } from "@prisma/client";
+import { Pool } from "pg";
 
-const router = express.Router();
-const prisma = new PrismaClient();
-
-// ✅ Vědecké kcal rozsahy podle kategorií (na 100 g)
-const kcalRanges = {
-  vegetable: [15, 90],
-  fruit: [20, 100],
-  meat: [80, 300],
-  fish: [70, 280],
-  bread: [200, 500],
-  cereal: [250, 500],
-  dairy: [40, 200],
-  fat: [500, 900],
-  starch: [100, 400],
-  sweet: [300, 550],
-};
-
-// ✅ Přesnější detekce kategorie podle názvu
-function detectCategory(name) {
-  const n = (name || "").toLowerCase();
-
-  if (n.includes("salmon") || n.includes("cod") || n.includes("fish")) return "fish";
-  if (n.includes("chicken") || n.includes("meat") || n.includes("beef")) return "meat";
-  if (n.includes("bread") || n.includes("bun") || n.includes("roll")) return "bread";
-  if (n.includes("rice") || n.includes("pasta") || n.includes("noodle")) return "starch";
-  if (n.includes("potato") || n.includes("fries")) return "starch";
-  if (n.includes("milk") || n.includes("cheese") || n.includes("yogurt")) return "dairy";
-  if (n.includes("apple") || n.includes("banana") || n.includes("fruit")) return "fruit";
-  if (n.includes("avocado") || n.includes("nut") || n.includes("peanut") || n.includes("butter") || n.includes("oil")) return "fat";
-  if (n.includes("chocolate") || n.includes("cake") || n.includes("snicker")) return "sweet";
-  if (n.includes("tomato") || n.includes("lettuce") || n.includes("onion") || n.includes("herb") || n.includes("cucumber") || n.includes("carrot")) return "vegetable";
-
-  return "vegetable";
-}
-
-// ============================================================
-// 🧠 Route: /api/scientific-correct
-// ============================================================
-router.post("/api/scientific-correct", async (req, res) => {
-  try {
-    const limit = Number(req.body.limit) || 50;
-    const foods = await prisma.foods.findMany({ take: limit });
-
-    let updated = 0;
-    const logs = [];
-    const factors = [];
-
-    for (const food of foods) {
-      const category = detectCategory(food.name_en || "");
-      const [min, max] = kcalRanges[category] || [20, 400];
-      const kcal = Number(food.kcal) || 0;
-
-      if (kcal <= 0) continue;
-
-      const tooLow = kcal < min * 0.7;
-      const tooHigh = kcal > max * 1.3;
-
-      if (tooLow || tooHigh) {
-        const target = (min + max) / 2;
-        const factor = target / kcal;
-        factors.push(factor);
-
-        const updatedValues = {
-          kcal: target,
-          protein: (food.protein || 0) * factor,
-          carbs: (food.carbs || 0) * factor,
-          fat: (food.fat || 0) * factor,
-          accuracy_score: Math.min(1.0, (food.accuracy_score || 0.8) + 0.1),
-          updated_at: new Date(),
-        };
-
-        await prisma.foods.update({
-          where: { id: food.id },
-          data: updatedValues,
-        });
-
-        await prisma.foodAuditLog.create({
-          data: {
-            food_id: food.id,
-            changed_fields: updatedValues,
-            source_chain: { source: "Scientific Correction Engine 4.7 Pro" },
-            reliability_score: 0.98,
-          },
-        });
-
-        updated++;
-        logs.push({
-          id: food.id,
-          food: food.name_en,
-          category,
-          issue: tooLow ? "too low" : "too high",
-          factor: factor.toFixed(3),
-          kcal_before: kcal,
-          kcal_after: target,
-        });
-
-        console.log(
-          `✅ [Scientific fix] ${food.name_en} (${category}) → ${target} kcal`
-        );
-      }
-    }
-
-    // 📊 Vědecké souhrny
-    const meanFactor =
-      factors.length > 0
-        ? factors.reduce((a, b) => a + b, 0) / factors.length
-        : 1;
-
-    const deviation =
-      factors.length > 0
-        ? Math.sqrt(
-            factors.reduce((a, b) => a + Math.pow(b - meanFactor, 2), 0) /
-              factors.length
-          )
-        : 0;
-
-    const overallAccuracy = Math.min(
-      100,
-      100 - Math.abs(meanFactor - 1) * 100 - deviation * 10
-    );
-
-    res.json({
-      success: true,
-      updated,
-      meanCorrectionFactor: meanFactor.toFixed(3),
-      deviation: deviation.toFixed(3),
-      overallScientificAccuracy: overallAccuracy.toFixed(2),
-      logs,
-      message: `Scientific correction Pro completed for ${updated} foods.`,
-    });
-  } catch (err) {
-    console.error("❌ Scientific correction error:", err.message);
-    res.status(500).json({ error: "Scientific correction failed" });
-  }
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
-export default router;
+// =======================================================
+// 🧱 AUTO DB CHECK (creates audit log table if missing)
+// =======================================================
+async function ensureAuditLog(client) {
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS food_audit_log (
+        id SERIAL PRIMARY KEY,
+        food_id INT,
+        action TEXT,
+        details JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log("🧩 food_audit_log verified");
+  } catch (err) {
+    console.error("❌ DB structure check failed:", err.message);
+  }
+}
+
+// =======================================================
+// ⚙️ SAFE LIMITS (scientific boundaries per 100g)
+// =======================================================
+const LIMITS = {
+  kcal: [0, 950],
+  protein: [0, 100],
+  fat: [0, 100],
+  carbs: [0, 100],
+};
+
+// =======================================================
+// 🧮 HELPERS
+// =======================================================
+const clamp = (v, [min, max]) =>
+  v == null || isNaN(v) ? 0 : Math.min(Math.max(v, min), max);
+
+const normalize = (v) =>
+  Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
+
+function fixUnits(v) {
+  if (v > 900) return normalize(v / 10);
+  if (v > 90) return normalize(v / 10);
+  return normalize(v);
+}
+
+// =======================================================
+// 🧬 MAIN ENGINE
+// =======================================================
+const scientificCorrection = async (req, res) => {
+  console.log("🧪 Running FitAI Scientific Correction 4.8...");
+  const client = await pool.connect();
+
+  try {
+    await ensureAuditLog(client);
+
+    const allFoods = await client.query("SELECT * FROM foods ORDER BY id ASC");
+    const total = allFoods.rows.length;
+
+    let corrected = 0;
+    let anomalies = 0;
+
+    for (const f of allFoods.rows) {
+      let { id, kcal, protein, fat, carbs } = f;
+
+      // 1️⃣ Remove invalids
+      kcal = Math.max(0, Number(kcal) || 0);
+      protein = Math.max(0, Number(protein) || 0);
+      fat = Math.max(0, Number(fat) || 0);
+      carbs = Math.max(0, Number(carbs) || 0);
+
+      // 2️⃣ Clamp to safe limits
+      kcal = clamp(kcal, LIMITS.kcal);
+      protein = clamp(protein, LIMITS.protein);
+      fat = clamp(fat, LIMITS.fat);
+      carbs = clamp(carbs, LIMITS.carbs);
+
+      // 3️⃣ Fix likely unit errors
+      kcal = fixUnits(kcal);
+      protein = fixUnits(protein);
+      fat = fixUnits(fat);
+      carbs = fixUnits(carbs);
+
+      // 4️⃣ Adjust kcal if mismatch with macros
+      const calcKcal = normalize(protein * 4 + carbs * 4 + fat * 9);
+      if (Math.abs(calcKcal - kcal) > 80) {
+        kcal = calcKcal;
+        anomalies++;
+      }
+
+      // 5️⃣ Update food record
+      await client.query(
+        `UPDATE foods 
+         SET kcal=$1, protein=$2, fat=$3, carbs=$4, updated_at=NOW()
+         WHERE id=$5`,
+        [kcal, protein, fat, carbs, id]
+      );
+
+      // 6️⃣ Log correction
+      await client.query(
+        `INSERT INTO food_audit_log (food_id, action, details, created_at)
+         VALUES ($1,$2,$3,NOW())`,
+        [
+          id,
+          "scientific_correction",
+          JSON.stringify({
+            kcal,
+            protein,
+            fat,
+            carbs,
+            autoRecalc: calcKcal,
+          }),
+        ]
+      );
+
+      corrected++;
+    }
+
+    const summary = {
+      totalFoods: total,
+      corrected,
+      anomalies,
+      successRate: total ? Number((corrected / total).toFixed(2)) : 0,
+      message: "Scientific correction completed successfully",
+      date: new Date().toISOString(),
+    };
+
+    console.log("✅ Scientific correction finished:", summary);
+    res.json(summary);
+  } catch (err) {
+    console.error("❌ Scientific correction error:", err);
+    res.status(500).json({ error: "Scientific correction failed" });
+  } finally {
+    client.release();
+  }
+};
+
+// =======================================================
+// ✅ DEFAULT EXPORT (compatible with existing index.ts)
+// =======================================================
+export default scientificCorrection;

@@ -1,6 +1,7 @@
 // =======================================================
-// FitAI Backend 4.4 – NeverZero + Legal Trace Engine
-// Full Safe Version – 2025-10-19
+// FitAI Backend 4.8 – Scientific Calibration System
+// Global Food Normalization & Accuracy Framework
+// Full Safe + Scientific Version – 2025-10-19
 // =======================================================
 
 import express from "express";
@@ -16,13 +17,16 @@ import { Pool } from "pg";
 import usdaSyncRoute from "./usda-sync";
 import nutrientFill from "./nutrient-fill";          // ✅ FitAI 4.1
 import datahubEngineRoute from "./datahub-engine";   // ✅ FitAI 4.2
-import neverZeroRouter from "./neverzero-engine";    // ✅ FitAI 4.4 – NEW
+import neverZeroRouter from "./neverzero-engine";    // ✅ FitAI 4.4
 import searchFoodRoute from "./search-food";
 import verifySourceRoute from "./verify-source";
 import normalizeRoute from "./normalize-engine";
-import normalizeSmart from "./normalize-engine";   // ✅ FitAI Normalize 1.3 – Smart Portion Correction
+import normalizeSmart from "./normalize-engine";     // ✅ FitAI Normalize 1.3
 import verifyAccuracy from "./verify-accuracy";
 import scientificCorrection from "./scientific-correction";
+
+// 🧬 NEW IN 4.8
+import { scientificCalibrate } from "./scientific-calibration.js";
 
 // =======================================================
 // 🌍 INIT SERVER + CONFIG
@@ -232,10 +236,8 @@ app.post("/usda-sync", async (req, res) => {
       if (name.includes("selenium")) nutrients.selenium = val;
       if (name.includes("sodium")) nutrients.sodium = val;
       if (name.includes("cholesterol")) nutrients.cholesterol = val;
-      if (name.includes("monounsaturated"))
-        nutrients.monounsaturated_fat = val;
-      if (name.includes("polyunsaturated"))
-        nutrients.polyunsaturated_fat = val;
+      if (name.includes("monounsaturated")) nutrients.monounsaturated_fat = val;
+      if (name.includes("polyunsaturated")) nutrients.polyunsaturated_fat = val;
       if (name.includes("trans")) nutrients.trans_fat = val;
       if (name.includes("water")) nutrients.water = val;
     });
@@ -255,6 +257,11 @@ app.post("/usda-sync", async (req, res) => {
 });
 
 // =======================================================
+// 🧬 SCIENTIFIC CALIBRATION (NEW IN 4.8)
+// =======================================================
+app.post("/api/scientific-calibrate", scientificCalibrate);
+
+// =======================================================
 // 🔍 ROUTES
 // =======================================================
 app.use("/", usdaSyncRoute);
@@ -264,7 +271,7 @@ app.use("/", neverZeroRouter);    // ✅ FitAI 4.4 – NeverZero + Legal Trace
 app.use("/", searchFoodRoute);
 app.use("/", verifySourceRoute);
 app.use("/", normalizeRoute);
-app.use("/", normalizeSmart);   // ✅ FitAI Normalize 1.3 – Portion Correction (100g standard)
+app.use("/", normalizeSmart);     // ✅ FitAI Normalize 1.3 – Portion Correction
 app.use("/", verifyAccuracy);
 app.use("/", scientificCorrection);
 
@@ -272,5 +279,5 @@ app.use("/", scientificCorrection);
 // 🚀 SERVER START
 // =======================================================
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 4.4 running on port ${port}`);
+  console.log(`✅ FitAI Backend 4.8 running on port ${port}`);
 });
