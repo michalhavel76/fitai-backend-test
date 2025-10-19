@@ -1,6 +1,6 @@
 // =======================================================
 // FitAI Normalize Engine 1.5 – Smart + Scientific + Auto Recalibrate
-// Version: 2025-10-19 (TypeScript Safe Build)
+// Version: 2025-10-19 (TypeScript + Railway Safe Build)
 // =======================================================
 
 import express from "express";
@@ -16,7 +16,7 @@ type AnyFood = Record<string, any>; // 🔧 univerzální typ, odstraní TS chyb
 // =======================================================
 router.post("/api/normalize-smart", async (req, res) => {
   try {
-    const limit = (req.body?.limit as number) || 10;
+    const limit = Number(req.body?.limit) || 10;
     const foods = await prisma.foods.findMany({ take: limit, orderBy: { id: "asc" } });
     const logs: AnyFood[] = [];
     let updated = 0;
@@ -42,7 +42,7 @@ router.post("/api/normalize-smart", async (req, res) => {
         await prisma.foods.update({
           where: { id: food.id },
           data: {
-            ...(updatedFood as AnyFood),
+            ...(updatedFood as any),
             accuracy_score: Math.min((food.accuracy_score || 0.8) + 0.05, 0.9),
             updated_at: new Date(),
           } as any,
@@ -70,7 +70,7 @@ router.post("/api/normalize-smart", async (req, res) => {
 // =======================================================
 router.post("/api/normalize-scientific", async (req, res) => {
   try {
-    const limit = (req.body?.limit as number) || 10;
+    const limit = Number(req.body?.limit) || 10;
     const foods = await prisma.foods.findMany({ take: limit, orderBy: { id: "asc" } });
     const logs: AnyFood[] = [];
     let updated = 0;
@@ -101,7 +101,7 @@ router.post("/api/normalize-scientific", async (req, res) => {
         await prisma.foods.update({
           where: { id: food.id },
           data: {
-            ...(food as AnyFood),
+            ...(food as any),
             accuracy_score: Math.min((food.accuracy_score || 0.9) + 0.05, 0.96),
             updated_at: new Date(),
           } as any,
@@ -128,7 +128,7 @@ router.post("/api/normalize-scientific", async (req, res) => {
 // =======================================================
 router.post("/api/normalize-recalibrate", async (req, res) => {
   try {
-    const limit = (req.body?.limit as number) || 10;
+    const limit = Number(req.body?.limit) || 10;
     const foods = await prisma.foods.findMany({ take: limit, orderBy: { id: "asc" } });
     const logs: AnyFood[] = [];
     let updated = 0;
@@ -140,7 +140,7 @@ router.post("/api/normalize-recalibrate", async (req, res) => {
       for (const [key, val] of Object.entries(food as AnyFood)) {
         if (typeof val !== "number" || val <= 0) continue;
 
-        // Extrémně vysoké hodnoty → zřejmě špatná jednotka
+        // Extrémně vysoké hodnoty → špatná jednotka
         if (val > 1000) {
           recalibrated[key] = val / 100;
           corrections.push(`${key}: /100`);
@@ -159,7 +159,7 @@ router.post("/api/normalize-recalibrate", async (req, res) => {
         await prisma.foods.update({
           where: { id: food.id },
           data: {
-            ...(recalibrated as AnyFood),
+            ...(recalibrated as any),
             accuracy_score: Math.min((food.accuracy_score || 0.9) + 0.03, 0.99),
             updated_at: new Date(),
           } as any,

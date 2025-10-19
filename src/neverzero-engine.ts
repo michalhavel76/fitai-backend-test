@@ -1,6 +1,6 @@
 // ============================================================
 // FitAI 4.5 – NeverZero 2.3 Global Nutrient Mode (42 nutrients)
-// TypeScript Safe Build – 2025-10-19
+// TypeScript & Railway Safe Build – 2025-10-19
 // ============================================================
 
 import express from "express";
@@ -9,7 +9,10 @@ import OpenAI from "openai";
 
 const router = express.Router();
 const prisma = new PrismaClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || "",
+});
 
 // 🧩 Kompletní seznam všech nutrientů (makra + mikro)
 const nutrientFields: string[] = [
@@ -63,7 +66,7 @@ router.post("/api/neverzero-sync", async (req, res) => {
           if (hub?.avg_value) {
             val = hub.avg_value;
             changed[n] = { value: val, source: "FitAI_DataHub", accuracy: hub.accuracy_score };
-          } else {
+          } else if (openai.apiKey) {
             // 🔁 AI fallback odhad
             const prompt = `Estimate typical amount of ${n.split("_").join(" ")} in 100g of ${food.name_en}. Return only numeric value.`;
             try {
@@ -76,8 +79,9 @@ router.post("/api/neverzero-sync", async (req, res) => {
               });
 
               const parsed = parseFloat(
-                ai.choices[0].message?.content?.replace(/[^\d.]/g, "") || "0"
+                ai.choices?.[0]?.message?.content?.replace(/[^\d.]/g, "") || "0"
               );
+
               if (!isNaN(parsed) && parsed > 0) {
                 val = parsed;
                 changed[n] = { value: parsed, source: "AI_estimate", accuracy: 0.65 };
@@ -89,7 +93,7 @@ router.post("/api/neverzero-sync", async (req, res) => {
         }
 
         // 2️⃣ Kontrola a oprava měřítka
-        const maxVal = (expectedMax as any)[n];
+        const maxVal = expectedMax[n];
         if (val && maxVal && val > maxVal * 10) {
           const oldVal = val;
           val = +(val / 100).toFixed(4);
@@ -116,8 +120,8 @@ router.post("/api/neverzero-sync", async (req, res) => {
         await prisma.foodAuditLog.create({
           data: {
             food_id: food.id,
-            changed_fields: changed,
-            source_chain: { source: "NeverZero 2.3 Global Nutrient Mode" },
+            changed_fields: changed as any,
+            source_chain: { source: "NeverZero 2.3 Global Nutrient Mode" } as any,
             reliability_score: 0.9,
           } as any,
         });
