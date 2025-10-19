@@ -14,11 +14,11 @@ datasource db {
 }
 
 // ============================================
-// 🥗 Main Table – Foods
+// 🥗 Main Table – foods
 // ============================================
 model foods {
-  id                  Int       @id @default(autoincrement())
-  name_en             String?   @unique(map: "unique_name_en")
+  id                  Int              @id @default(autoincrement())
+  name_en             String?          @unique(map: "unique_name_en")
   name_cz             String?
   category            String?
   origin              String?
@@ -36,8 +36,8 @@ model foods {
   source              String?
   image_url           String?
   lang                Json?
-  created_at          DateTime? @default(now())
-  accuracy_score      Float?    @default(0.0)
+  created_at          DateTime?        @default(now())
+  accuracy_score      Float?           @default(0.0)
   alcohol             Float?
   biotin_b7           Float?
   caffeine            Float?
@@ -49,7 +49,7 @@ model foods {
   dish_name           String?
   folate_b9           Float?
   iodine              Float?
-  is_global           Boolean?  @default(false)
+  is_global           Boolean?         @default(false)
   magnesium           Float?
   manganese           Float?
   molybdenum          Float?
@@ -61,7 +61,7 @@ model foods {
   phosphorus          Float?
   polyunsaturated_fat Float?
   potassium           Float?
-  region              String?   @default("global")
+  region              String?          @default("global")
   riboflavin_b2       Float?
   selenium            Float?
   thiamin_b1          Float?
@@ -73,10 +73,10 @@ model foods {
   vitamin_k           Float?
   water               Float?
   zinc                Float?
-  updated_at          DateTime? @default(now()) @db.Timestamp(6)
+  updated_at          DateTime?        @default(now()) @db.Timestamp(6)
 
   // 🔗 Relation – audit log
-  audit_logs food_audit_log[]
+  audit_logs          FoodAuditLog[]
 }
 
 // ============================================
@@ -96,7 +96,7 @@ model FitAI_DataHub {
 // ============================================
 // ⚖️ Legal Trace – Food Audit Log
 // ============================================
-model food_audit_log {
+model FoodAuditLog {
   id                Int       @id @default(autoincrement())
   food_id           Int
   changed_fields    Json
@@ -105,5 +105,5 @@ model food_audit_log {
   timestamp         DateTime  @default(now())
 
   // 🔗 Relation – back to foods
-  food foods @relation(fields: [food_id], references: [id], onDelete: Cascade)
+  food              foods     @relation(fields: [food_id], references: [id], onDelete: Cascade)
 }

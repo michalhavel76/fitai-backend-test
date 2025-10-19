@@ -1,6 +1,6 @@
 // =======================================================
-// FitAI Backend 4.3 – USDA + Nutritionix + DataHub AutoFill
-// Full Safe Version – 2025-10-18
+// FitAI Backend 4.4 – NeverZero + Legal Trace Engine
+// Full Safe Version – 2025-10-19
 // =======================================================
 
 import express from "express";
@@ -12,9 +12,17 @@ import OpenAI from "openai";
 import axios from "axios";
 import { Pool } from "pg";
 
+// 🌍 Routes
 import usdaSyncRoute from "./usda-sync";
-import nutrientFill from "./nutrient-fill";        // ✅ FitAI 4.1
-import datahubEngineRoute from "./datahub-engine"; // ✅ FitAI 4.2
+import nutrientFill from "./nutrient-fill";          // ✅ FitAI 4.1
+import datahubEngineRoute from "./datahub-engine";   // ✅ FitAI 4.2
+import neverZeroRouter from "./neverzero-engine";    // ✅ FitAI 4.4 – NEW
+import searchFoodRoute from "./search-food";
+import verifySourceRoute from "./verify-source";
+import normalizeRoute from "./normalize-engine";
+import normalizeSmart from "./normalize-engine";   // ✅ FitAI Normalize 1.3 – Smart Portion Correction
+import verifyAccuracy from "./verify-accuracy";
+import scientificCorrection from "./scientific-correction";
 
 // =======================================================
 // 🌍 INIT SERVER + CONFIG
@@ -56,9 +64,9 @@ const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 // =======================================================
 app.get("/ping", (_, res) => res.send("pong"));
 
-/* =======================================================
-   🍽️ ANALYZE PLATE (AI + Nutritionix + AutoFill vitamins)
-======================================================= */
+// =======================================================
+// 🍽️ ANALYZE PLATE (AI + Nutritionix + AutoFill vitamins)
+// =======================================================
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No image" });
@@ -122,7 +130,6 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
           source: "nutritionix",
         };
 
-        // Ulož do DB
         await pool.query(
           `INSERT INTO foods (name_en, name_cz, kcal, protein, carbs, fat, image_url, source, created_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
@@ -138,7 +145,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
           ]
         );
 
-        // ✅ Po vložení spustíme automatický výpočet vitamínů
+        // ✅ Auto vitamin fill
         await axios.post("http://localhost:4000/api/nutrient-fill", {
           food: newFood.name_en,
         });
@@ -175,9 +182,9 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   }
 });
 
-/* =======================================================
-   🧬 USDA SYNC (Enhanced Search + 10 results fallback)
-======================================================= */
+// =======================================================
+// 🧬 USDA SYNC (Enhanced Search + 10 results fallback)
+// =======================================================
 app.post("/usda-sync", async (req, res) => {
   try {
     const { food } = req.body;
@@ -189,11 +196,7 @@ app.post("/usda-sync", async (req, res) => {
     console.log("🔎 Searching USDA for:", food);
 
     const searchRes = await axios.get(USDA_SEARCH_URL, {
-      params: {
-        api_key: USDA_API_KEY,
-        query: food,
-        pageSize: 10,
-      },
+      params: { api_key: USDA_API_KEY, query: food, pageSize: 10 },
     });
 
     const results = searchRes.data.foods || [];
@@ -251,16 +254,23 @@ app.post("/usda-sync", async (req, res) => {
   }
 });
 
-/* =======================================================
-   🔍 SUGGEST + CALCULATE + ROUTES
-======================================================= */
+// =======================================================
+// 🔍 ROUTES
+// =======================================================
 app.use("/", usdaSyncRoute);
 app.use("/", datahubEngineRoute); // ✅ FitAI 4.2 – DataHub Refresh
 app.use("/api", nutrientFill);    // ✅ FitAI 4.1 – Nutrient Fill
+app.use("/", neverZeroRouter);    // ✅ FitAI 4.4 – NeverZero + Legal Trace
+app.use("/", searchFoodRoute);
+app.use("/", verifySourceRoute);
+app.use("/", normalizeRoute);
+app.use("/", normalizeSmart);   // ✅ FitAI Normalize 1.3 – Portion Correction (100g standard)
+app.use("/", verifyAccuracy);
+app.use("/", scientificCorrection);
 
 // =======================================================
 // 🚀 SERVER START
 // =======================================================
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 4.3 Hybrid running on port ${port}`);
+  console.log(`✅ FitAI Backend 4.4 running on port ${port}`);
 });
