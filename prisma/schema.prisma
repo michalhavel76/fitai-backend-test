@@ -1,20 +1,19 @@
 // ============================================
-// FitAI 4.4 – NeverZero + Legal Trace Engine
+// 🌍 FitAI 5.0 – Global Scientific Food Database
+// ✅ Railway-ready schema (bez shadow DB)
 // ============================================
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// 🔗 Datasource: hlavní Railway DB + lokální shadow (SQLite)
 datasource db {
-  provider          = "postgresql"
-  url               = env("DATABASE_URL")
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ============================================
-// 🥗 Main Table – foods
+// 🥗 Main Table – foods (legacy)
 // ============================================
 model foods {
   id                  Int              @id @default(autoincrement())
@@ -75,12 +74,74 @@ model foods {
   zinc                Float?
   updated_at          DateTime?        @default(now()) @db.Timestamp(6)
 
-  // 🔗 Relation – audit log
   audit_logs          FoodAuditLog[]
 }
 
 // ============================================
-// 📊 Global Reference Data – FitAI DataHub
+// 🌎 Global Table – foods_universal
+// ============================================
+model foods_universal {
+  id                   Int       @id @default(autoincrement())
+  name_en              String
+  name_cz              String?
+  name_de              String?
+  name_fr              String?
+  name_es              String?
+  name_it              String?
+  category             String?
+  source               String?
+  country_origin       String?
+  image_url            String?
+  scientific_accuracy  Float     @default(0)
+  updated_at           DateTime  @default(now())
+
+  // 42 standardized nutrient columns
+  kcal                 Float?
+  protein              Float?
+  fat                  Float?
+  carbs                Float?
+  fiber                Float?
+  sugar                Float?
+  sodium               Float?
+  calcium              Float?
+  iron                 Float?
+  magnesium            Float?
+  phosphorus           Float?
+  potassium            Float?
+  zinc                 Float?
+  copper               Float?
+  manganese            Float?
+  selenium             Float?
+  vitamin_a            Float?
+  vitamin_b1           Float?
+  vitamin_b2           Float?
+  vitamin_b3           Float?
+  vitamin_b5           Float?
+  vitamin_b6           Float?
+  vitamin_b7           Float?
+  vitamin_b9           Float?
+  vitamin_b12          Float?
+  vitamin_c            Float?
+  vitamin_d            Float?
+  vitamin_e            Float?
+  vitamin_k            Float?
+  cholesterol          Float?
+  saturated_fat        Float?
+  monounsaturated_fat  Float?
+  polyunsaturated_fat  Float?
+  omega_3              Float?
+  omega_6              Float?
+  trans_fat            Float?
+  water                Float?
+  caffeine             Float?
+  alcohol              Float?
+  ash                  Float?
+  pufa_ratio           Float?
+  glycemic_index       Float?
+}
+
+// ============================================
+// 📊 Global Reference Data – FitAI_DataHub
 // ============================================
 model FitAI_DataHub {
   id             Int       @id @default(autoincrement())
@@ -94,7 +155,7 @@ model FitAI_DataHub {
 }
 
 // ============================================
-// ⚖️ Legal Trace – Food Audit Log
+// ⚖️ Legal Trace – FoodAuditLog
 // ============================================
 model FoodAuditLog {
   id                Int       @id @default(autoincrement())
@@ -104,6 +165,5 @@ model FoodAuditLog {
   reliability_score Float
   timestamp         DateTime  @default(now())
 
-  // 🔗 Relation – back to foods
   food              foods     @relation(fields: [food_id], references: [id], onDelete: Cascade)
 }
