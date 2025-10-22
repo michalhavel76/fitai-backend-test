@@ -258,19 +258,17 @@ app.post("/usda-sync", async (req, res) => {
   }
 });
 
-/// =======================================================
-// 🧬 SCIENTIFIC CALIBRATION (NEW IN 4.8)
+// =======================================================
+// 🧬 SCIENTIFIC CALIBRATION & FILL 42 (NEW)
 // =======================================================
 app.post("/api/scientific-calibrate", scientificCalibrate);
 
-// =======================================================
-// 🔧 Register main scientific endpoints BEFORE catch-all routes
-// =======================================================
-app.post("/api/scientific-fill-42", scientificFill42); // ✅ musí být nahoře
+// 🧩 Scientific Fill 42 – must be before other routes
+app.post("/api/scientific-fill-42", scientificFill42);
 app.use(manualFill42);
 
 // =======================================================
-// 🔍 OTHER ROUTES
+// 🔍 OTHER ROUTES (after Fill 42)
 // =======================================================
 app.use("/", usdaSyncRoute);
 app.use("/", datahubEngineRoute);
@@ -281,7 +279,9 @@ app.use("/", verifySourceRoute);
 app.use("/", normalizeRoute);
 app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
-app.use("/", scientificCorrection); // ⬅️ až nakonec, nikdy nad Fill 42
+
+// 🧠 Scientific correction LAST
+app.use("/", scientificCorrection);
 
 // =======================================================
 // 🚀 SERVER START
