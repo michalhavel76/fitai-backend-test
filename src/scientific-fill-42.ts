@@ -9,6 +9,7 @@
 // - No NULL values allowed
 // =======================================================
 
+console.log("🧬 Scientific Fill 42 initialized (FitAI 5.1 active)");
 import { Pool } from "pg";
 import { assertSafe } from "./safeMode";
 
