@@ -35,7 +35,6 @@ const verify_accuracy_1 = __importDefault(require("./verify-accuracy"));
 const scientific_correction_1 = __importDefault(require("./scientific-correction"));
 // @ts-ignore
 const scientific_calibration_1 = require("./scientific-calibration");
-const manual_fill_42_1 = __importDefault(require("./manual-fill-42"));
 const scientific_fill_42_1 = __importDefault(require("./scientific-fill-42"));
 // =======================================================
 // 🌍 INIT SERVER + CONFIG
@@ -165,8 +164,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 // 🧬 SCIENTIFIC CALIBRATION & FILL 42 (FitAI 5.1)
 // =======================================================
 app.post("/api/scientific-calibrate", scientific_calibration_1.scientificCalibrate);
-app.post("/api/fill42", scientific_fill_42_1.default); // must be BEFORE correction
-app.use(manual_fill_42_1.default);
+app.post("/api/scientific-fill-42", scientific_fill_42_1.default); // ✅ správně tady
 // =======================================================
 // 🔍 OTHER ROUTES (after Fill 42)
 // =======================================================

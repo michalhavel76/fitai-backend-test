@@ -194,8 +194,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 // 🧬 SCIENTIFIC CALIBRATION & FILL 42 (FitAI 5.1)
 // =======================================================
 app.post("/api/scientific-calibrate", scientificCalibrate);
-app.post("/api/fill42", scientificFill42); // must be BEFORE correction
-app.use(manualFill42);
+app.post("/api/scientific-fill-42", scientificFill42); // ✅ správně tady
 
 // =======================================================
 // 🔍 OTHER ROUTES (after Fill 42)
