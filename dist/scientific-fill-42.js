@@ -11,6 +11,7 @@
 // =======================================================
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.scientificFill42 = void 0;
+console.log("🧬 Scientific Fill 42 initialized (FitAI 5.1 active)");
 const pg_1 = require("pg");
 const safeMode_1 = require("./safeMode");
 const pool = new pg_1.Pool({

@@ -234,12 +234,17 @@ app.post("/usda-sync", async (req, res) => {
         res.status(500).json({ error: "USDA sync failed" });
     }
 });
-// =======================================================
+/// =======================================================
 // 🧬 SCIENTIFIC CALIBRATION (NEW IN 4.8)
 // =======================================================
 app.post("/api/scientific-calibrate", scientific_calibration_1.scientificCalibrate);
 // =======================================================
-// 🔍 ROUTES
+// 🔧 Register main scientific endpoints BEFORE catch-all routes
+// =======================================================
+app.post("/api/scientific-fill-42", scientific_fill_42_1.default); // ✅ musí být nahoře
+app.use(manual_fill_42_1.default);
+// =======================================================
+// 🔍 OTHER ROUTES
 // =======================================================
 app.use("/", usda_sync_1.default);
 app.use("/", datahub_engine_1.default);
@@ -250,9 +255,7 @@ app.use("/", verify_source_1.default);
 app.use("/", normalize_engine_1.default);
 app.use("/", normalize_engine_2.default);
 app.use("/", verify_accuracy_1.default);
-app.use("/", scientific_correction_1.default);
-app.use(manual_fill_42_1.default);
-app.post("/api/scientific-fill-42", scientific_fill_42_1.default);
+app.use("/", scientific_correction_1.default); // ⬅️ až nakonec, nikdy nad Fill 42
 // =======================================================
 // 🚀 SERVER START
 // =======================================================
