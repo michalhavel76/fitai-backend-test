@@ -275,9 +275,12 @@ app.use("/", verifySourceRoute);
 app.use("/", normalizeRoute);
 app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
+
+// 🔧 Moved up before correction
+app.post("/api/scientific-fill-42", scientificFill42);
+
 app.use("/", scientificCorrection);
 app.use(manualFill42);
-app.post("/api/scientific-fill-42", scientificFill42);
 
 // =======================================================
 // 🚀 SERVER START
