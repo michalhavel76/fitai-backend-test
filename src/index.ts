@@ -1,7 +1,12 @@
 // =======================================================
-// FitAI Backend 4.9 – Scientific Calibration System
-// Global Food Normalization & Accuracy Framework
-// Full Safe Build – 2025-10-19
+// FitAI Backend 5.1 – Scientific Fill 42 + Global Nutrition Engine
+// Author: Michal Havel & FitAI Core Team
+// =======================================================
+//
+// Purpose:
+// - Complete 42-nutrient scientific fill system
+// - Global USDA + Nutritionix integration
+// - Stable + SafeMode protected build
 // =======================================================
 
 import express from "express";
@@ -21,12 +26,12 @@ import neverZeroRouter from "./neverzero-engine";
 import searchFoodRoute from "./search-food";
 import verifySourceRoute from "./verify-source";
 import normalizeRoute from "./normalize-engine";
-import normalizeSmart from "./normalize-engine";
 import verifyAccuracy from "./verify-accuracy";
 
-// @ts-ignore – JS module (no declaration)
+// 🧠 Scientific Modules
+// @ts-ignore
 import scientificCorrection from "./scientific-correction";
-// @ts-ignore – JS module (no declaration)
+// @ts-ignore
 import { scientificCalibrate } from "./scientific-calibration";
 import manualFill42 from "./manual-fill-42";
 import scientificFill42 from "./scientific-fill-42";
@@ -62,9 +67,6 @@ pool
 // =======================================================
 const upload = multer({ dest: "uploads/" });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
-const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
 // =======================================================
 // 🧩 PING (Server health check)
@@ -118,8 +120,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
           { query: ing },
           {
             headers: {
-              "x-app-id": NUTRITIONIX_APP_ID!,
-              "x-app-key": NUTRITIONIX_API_KEY!,
+              "x-app-id": process.env.NUTRITIONIX_APP_ID!,
+              "x-app-key": process.env.NUTRITIONIX_API_KEY!,
               "Content-Type": "application/json",
             },
           }
@@ -189,82 +191,10 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 });
 
 // =======================================================
-// 🧬 USDA SYNC (Enhanced Search + 10 results fallback)
-// =======================================================
-app.post("/usda-sync", async (req, res) => {
-  try {
-    const { food } = req.body;
-    if (!food) return res.status(400).json({ error: "Missing food name" });
-
-    const USDA_API_KEY = "CoapVie1RnpUCrfGNfbeoDyG0Ut3DNktWOyLnUC0";
-    const USDA_SEARCH_URL = `https://api.nal.usda.gov/fdc/v1/foods/search`;
-
-    console.log("🔎 Searching USDA for:", food);
-
-    const searchRes = await axios.get(USDA_SEARCH_URL, {
-      params: { api_key: USDA_API_KEY, query: food, pageSize: 10 },
-    });
-
-    const results = searchRes.data.foods || [];
-    if (results.length === 0)
-      return res.status(404).json({ error: `No match found in USDA for "${food}"` });
-
-    const fdcId = results[0].fdcId;
-    console.log("✅ Found USDA entry:", results[0].description);
-
-    const foodRes = await axios.get(
-      `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_API_KEY}`
-    );
-
-    const foodData = foodRes.data;
-    const nutrients: Record<string, number> = {};
-
-    foodData.foodNutrients?.forEach((n: any) => {
-      const name = n.nutrient?.name?.toLowerCase() || "";
-      const val = n.amount || 0;
-      if (name.includes("vitamin a")) nutrients.vitamin_a = val;
-      if (name.includes("vitamin c")) nutrients.vitamin_c = val;
-      if (name.includes("vitamin d")) nutrients.vitamin_d = val;
-      if (name.includes("vitamin e")) nutrients.vitamin_e = val;
-      if (name.includes("vitamin k")) nutrients.vitamin_k = val;
-      if (name.includes("calcium")) nutrients.calcium = val;
-      if (name.includes("iron")) nutrients.iron = val;
-      if (name.includes("zinc")) nutrients.zinc = val;
-      if (name.includes("magnesium")) nutrients.magnesium = val;
-      if (name.includes("phosphorus")) nutrients.phosphorus = val;
-      if (name.includes("potassium")) nutrients.potassium = val;
-      if (name.includes("copper")) nutrients.copper = val;
-      if (name.includes("manganese")) nutrients.manganese = val;
-      if (name.includes("selenium")) nutrients.selenium = val;
-      if (name.includes("sodium")) nutrients.sodium = val;
-      if (name.includes("cholesterol")) nutrients.cholesterol = val;
-      if (name.includes("monounsaturated")) nutrients.monounsaturated_fat = val;
-      if (name.includes("polyunsaturated")) nutrients.polyunsaturated_fat = val;
-      if (name.includes("trans")) nutrients.trans_fat = val;
-      if (name.includes("water")) nutrients.water = val;
-    });
-
-    await pool.query(
-      `INSERT INTO foods (name_en, name_cz, region, source, is_global, accuracy_score, created_at)
-       VALUES ($1,$1,'global','USDA',true,1.0,NOW())
-       ON CONFLICT (name_en) DO UPDATE SET region='global', source='USDA', updated_at=NOW()`,
-      [food.toLowerCase()]
-    );
-
-    res.json({ success: true, nutrients });
-  } catch (err: any) {
-    console.error("❌ USDA Sync Error:", err.message);
-    res.status(500).json({ error: "USDA sync failed" });
-  }
-});
-
-// =======================================================
-// 🧬 SCIENTIFIC CALIBRATION & FILL 42 (NEW)
+// 🧬 SCIENTIFIC CALIBRATION & FILL 42 (FitAI 5.1)
 // =======================================================
 app.post("/api/scientific-calibrate", scientificCalibrate);
-
-// 🧩 Scientific Fill 42 – must be before other routes
-app.post("/api/scientific-fill-42", scientificFill42);
+app.post("/api/scientific-fill-42", scientificFill42); // must be BEFORE correction
 app.use(manualFill42);
 
 // =======================================================
@@ -277,15 +207,15 @@ app.use("/", neverZeroRouter);
 app.use("/", searchFoodRoute);
 app.use("/", verifySourceRoute);
 app.use("/", normalizeRoute);
-app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
 
-// 🧠 Scientific correction LAST
+// 🧠 Correction LAST (legacy compatibility)
 app.use("/", scientificCorrection);
 
 // =======================================================
 // 🚀 SERVER START
 // =======================================================
 app.listen(port, () => {
-  console.log(`✅ FitAI Backend 4.9 running on port ${port}`);
+  console.log("🧬 Scientific Fill 42 initialized (FitAI 5.1 active)");
+  console.log(`✅ FitAI Backend 5.1 running on port ${port}`);
 });
