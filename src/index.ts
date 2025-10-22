@@ -29,6 +29,7 @@ import scientificCorrection from "./scientific-correction";
 // @ts-ignore – JS module (no declaration)
 import { scientificCalibrate } from "./scientific-calibration";
 import manualFill42 from "./manual-fill-42";
+import scientificFill42 from "./scientific-fill-42";
 
 // =======================================================
 // 🌍 INIT SERVER + CONFIG
@@ -276,6 +277,7 @@ app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
 app.use("/", scientificCorrection);
 app.use(manualFill42);
+app.post("/api/scientific-fill-42", scientificFill42);
 
 // =======================================================
 // 🚀 SERVER START
