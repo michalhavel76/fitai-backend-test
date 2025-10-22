@@ -1,5 +1,18 @@
+// =======================================================
+// 🧱 FitAI – Safe Reset Table Script (Protected Version)
+// Version: 5.0 (2025-10-22)
+// Author: Michal Havel & FitAI Core Team
+// =======================================================
+//
+// 🧠 Purpose:
+//  - Ensure table "foods" exists with the correct schema
+//  - Never delete or drop existing data
+//  - Log every action safely into FoodAuditLog
+// =======================================================
+
 import dotenv from "dotenv";
 import { Pool } from "pg";
+import { assertSafe } from "./safeMode";
 
 dotenv.config();
 
@@ -8,46 +21,106 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-async function resetTable() {
-  console.log("⚠️  Dropping old table 'foods'...");
-
+// =======================================================
+// 🧾 Log to FoodAuditLog (for transparency)
+// =======================================================
+async function logAction(action: string, details: any) {
   try {
     const client = await pool.connect();
-    await client.query(`DROP TABLE IF EXISTS foods;`);
-    console.log("🗑️  Old table dropped.");
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS foods (
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS "FoodAuditLog" (
         id SERIAL PRIMARY KEY,
-        name_en TEXT,
-        name_cz TEXT,
-        category TEXT,
-        origin TEXT,
-        kcal FLOAT,
-        protein FLOAT,
-        carbs FLOAT,
-        fat FLOAT,
-        fiber FLOAT,
-        sugar FLOAT,
-        sodium FLOAT,
-        vitamin_a FLOAT,
-        vitamin_c FLOAT,
-        calcium FLOAT,
-        iron FLOAT,
-        source TEXT,
-        image_url TEXT,
-        lang JSONB,
+        action TEXT,
+        details JSONB,
         created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+      );`
+    );
 
-    console.log("✅ New table 'foods' created successfully.");
+    await client.query(
+      `INSERT INTO "FoodAuditLog" (action, details, created_at)
+       VALUES ($1, $2, NOW());`,
+      [action, JSON.stringify(details)]
+    );
+
     client.release();
   } catch (err: any) {
-    console.error("❌ Error resetting table:", err.message);
+    console.error("⚠️ Failed to write FoodAuditLog:", err.message);
+  }
+}
+
+// =======================================================
+// 🧩 Main Function – Safe Table Check & Create
+// =======================================================
+async function ensureFoodsTable() {
+  console.log("🧱 Checking table 'foods' integrity...");
+
+  // 🧠 Safety Lock – stop if not dev
+  await assertSafe("resetFoodsTable check");
+
+  const client = await pool.connect();
+
+  try {
+    // 1️⃣ Check if table exists
+    const exists = await client.query(`
+      SELECT to_regclass('public.foods') AS table_exists;
+    `);
+
+    const tableExists = !!exists.rows[0].table_exists;
+
+    if (tableExists) {
+      console.log("✅ Table 'foods' already exists. No data removed.");
+      await logAction("foods_table_verified", {
+        status: "exists",
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      console.log("⚙️  Table 'foods' not found – creating new one safely...");
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS foods (
+          id SERIAL PRIMARY KEY,
+          name_en TEXT,
+          name_cz TEXT,
+          category TEXT,
+          origin TEXT,
+          kcal FLOAT,
+          protein FLOAT,
+          carbs FLOAT,
+          fat FLOAT,
+          fiber FLOAT,
+          sugar FLOAT,
+          sodium FLOAT,
+          vitamin_a FLOAT,
+          vitamin_c FLOAT,
+          calcium FLOAT,
+          iron FLOAT,
+          source TEXT,
+          image_url TEXT,
+          lang JSONB,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+
+      console.log("✅ Table 'foods' created successfully (no data removed).");
+
+      await logAction("foods_table_created", {
+        status: "created",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (err: any) {
+    console.error("❌ Error ensuring 'foods' table:", err.message);
+    await logAction("foods_table_error", { error: err.message });
   } finally {
+    client.release();
     pool.end();
   }
 }
 
-resetTable();
+// =======================================================
+// 🚀 Execute only if explicitly run by developer
+// =======================================================
+if (process.env.MODE === "dev") {
+  ensureFoodsTable();
+} else {
+  console.log("🛡️ SafeMode: resetFoodsTable blocked (non-dev mode).");
+}

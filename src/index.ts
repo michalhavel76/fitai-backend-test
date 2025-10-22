@@ -28,6 +28,7 @@ import verifyAccuracy from "./verify-accuracy";
 import scientificCorrection from "./scientific-correction";
 // @ts-ignore – JS module (no declaration)
 import { scientificCalibrate } from "./scientific-calibration";
+import manualFill42 from "./manual-fill-42";
 
 // =======================================================
 // 🌍 INIT SERVER + CONFIG
@@ -274,6 +275,7 @@ app.use("/", normalizeRoute);
 app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
 app.use("/", scientificCorrection);
+app.use(manualFill42);
 
 // =======================================================
 // 🚀 SERVER START
