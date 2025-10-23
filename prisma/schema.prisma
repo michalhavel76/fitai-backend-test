@@ -1,79 +1,75 @@
+<<<<<<< HEAD
 // ============================================
 // 🌍 FitAI 5.0 – Global Scientific Food Database
 // ✅ Railway-ready schema (bez shadow DB)
 // ============================================
+=======
+// =======================================================
+// FitAI 4.9.1 – Scientific + NeverZero + Legal Trace Engine
+// =======================================================
+>>>>>>> 9750ffb (🚀 FitAI Backend 4.9.8 – Railway-safe production build)
 
 generator client {
   provider = "prisma-client-js"
 }
 
+<<<<<<< HEAD
+=======
+// 🔗 Datasource: hlavní Railway DB (bez shadow DB pro push)
+>>>>>>> 9750ffb (🚀 FitAI Backend 4.9.8 – Railway-safe production build)
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+<<<<<<< HEAD
 // ============================================
 // 🥗 Main Table – foods (legacy)
 // ============================================
+=======
+// =======================================================
+// 🥗 Main Table – foods (Scientific 42+ Nutrients + Metadata)
+// =======================================================
+>>>>>>> 9750ffb (🚀 FitAI Backend 4.9.8 – Railway-safe production build)
 model foods {
-  id                  Int              @id @default(autoincrement())
-  name_en             String?          @unique(map: "unique_name_en")
+  id                  Int       @id @default(autoincrement())
+  name_en             String?   @unique(map: "unique_name_en")
   name_cz             String?
   category            String?
   origin              String?
+  region              String?   @default("global")
+  source              String?
+  image_url           String?
+  dish_name           String?
+
+  // --- Core macros ---
   kcal                Float?
   protein             Float?
   carbs               Float?
   fat                 Float?
   fiber               Float?
   sugar               Float?
-  sodium              Float?
-  vitamin_a           Float?
-  vitamin_c           Float?
-  calcium             Float?
-  iron                Float?
-  source              String?
-  image_url           String?
-  lang                Json?
-  created_at          DateTime?        @default(now())
-  accuracy_score      Float?           @default(0.0)
+  water               Float?
   alcohol             Float?
-  biotin_b7           Float?
-  caffeine            Float?
   cholesterol         Float?
-  choline             Float?
-  chromium            Float?
-  composition         Json?
-  copper              Float?
-  dish_name           String?
-  folate_b9           Float?
-  iodine              Float?
-  is_global           Boolean?         @default(false)
-  magnesium           Float?
-  manganese           Float?
-  molybdenum          Float?
-  monounsaturated_fat Float?
-  niacin_b3           Float?
-  omega_3             Float?
-  omega_6             Float?
-  pantothenic_b5      Float?
-  phosphorus          Float?
-  polyunsaturated_fat Float?
-  potassium           Float?
-  region              String?          @default("global")
-  riboflavin_b2       Float?
-  selenium            Float?
-  thiamin_b1          Float?
-  trans_fat           Float?
-  vitamin_b12         Float?
+  sodium              Float?
+
+  // --- Vitamins ---
+  vitamin_a           Float?
+  vitamin_b1          Float?
+  vitamin_b2          Float?
+  vitamin_b3          Float?
+  vitamin_b5          Float?
   vitamin_b6          Float?
+  vitamin_b7          Float?
+  vitamin_b9          Float?
+  vitamin_b12         Float?
+  vitamin_c           Float?
   vitamin_d           Float?
   vitamin_e           Float?
   vitamin_k           Float?
-  water               Float?
-  zinc                Float?
-  updated_at          DateTime?        @default(now()) @db.Timestamp(6)
 
+<<<<<<< HEAD
   audit_logs          FoodAuditLog[]
 }
 
@@ -143,6 +139,54 @@ model foods_universal {
 // ============================================
 // 📊 Global Reference Data – FitAI_DataHub
 // ============================================
+=======
+  // --- Minerals ---
+  calcium             Float?
+  iron                Float?
+  magnesium           Float?
+  phosphorus          Float?
+  potassium           Float?
+  zinc                Float?
+  copper              Float?
+  manganese           Float?
+  selenium            Float?
+  iodine              Float?
+  chromium            Float?
+  molybdenum          Float?
+  chloride            Float?
+
+  // --- Fats detail ---
+  trans_fat           Float?
+  monounsaturated_fat Float?
+  polyunsaturated_fat Float?
+  omega_3             Float?
+  omega_6             Float?
+
+  // --- Additional compounds ---
+  caffeine            Float?
+  choline             Float?
+  biotin_b7           Float?
+  niacin_b3           Float?
+  pantothenic_b5      Float?
+
+  // --- Metadata ---
+  is_global           Boolean?  @default(false)
+  accuracy_score      Float?    @default(0.0)
+  composition         Json?
+  lang                Json?
+
+  // --- Timestamps ---
+  created_at          DateTime? @default(now())
+  updated_at          DateTime? @default(now()) @db.Timestamp(6)
+
+  // --- Relations ---
+  audit_logs          FoodAuditLog[]
+}
+
+// =======================================================
+// 📊 Global Reference Data – FitAI DataHub
+// =======================================================
+>>>>>>> 9750ffb (🚀 FitAI Backend 4.9.8 – Railway-safe production build)
 model FitAI_DataHub {
   id             Int       @id @default(autoincrement())
   nutrient_key   String    @unique
@@ -154,9 +198,15 @@ model FitAI_DataHub {
   updated_at     DateTime? @default(now()) @updatedAt @db.Timestamp(6)
 }
 
+<<<<<<< HEAD
 // ============================================
 // ⚖️ Legal Trace – FoodAuditLog
 // ============================================
+=======
+// =======================================================
+// ⚖️ Legal Trace – Food Audit Log
+// =======================================================
+>>>>>>> 9750ffb (🚀 FitAI Backend 4.9.8 – Railway-safe production build)
 model FoodAuditLog {
   id                Int       @id @default(autoincrement())
   food_id           Int
