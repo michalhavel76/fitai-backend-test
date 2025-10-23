@@ -1,6 +1,6 @@
 // =======================================================
-// FitAI Backend 5.0 – Clean Railway-safe Build
-// ✅ Base server + /api/add-food test
+// FitAI Backend 5.0.1 – Stable Railway-safe Build
+// ✅ Single Prisma instance + working /api/add-food
 // =======================================================
 
 import express from "express";
@@ -12,7 +12,7 @@ import addFoodRoute from "./add-food";
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
+export const prisma = new PrismaClient(); // ✅ exportujeme pro ostatní moduly
 const PORT = parseInt(process.env.PORT || "8080", 10);
 
 app.use(cors());
@@ -38,7 +38,7 @@ app.get("/ping", (_, res) => {
 });
 
 // =======================================================
-// 🍎 Add Food endpoint (⚠️ Mount directly, no extra /api prefix)
+// 🍎 Add Food endpoint
 // =======================================================
 app.use(addFoodRoute);
 
@@ -46,5 +46,5 @@ app.use(addFoodRoute);
 // 🚀 Start server
 // =======================================================
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ FitAI Backend 5.0 running on port ${PORT}`);
+  console.log(`✅ FitAI Backend 5.0.1 running on port ${PORT}`);
 });
