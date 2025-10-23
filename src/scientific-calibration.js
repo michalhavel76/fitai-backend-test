@@ -1,7 +1,7 @@
 // =======================================================
-// FitAI 4.8 – Scientific Calibration Engine
+// FitAI 4.9.2 – Scientific Calibration Engine (Weighted Accuracy)
 // Global Food Normalization & Accuracy Framework
-// Full Production Version – 2025-10-19
+// Full Production Version – 2025-10-20
 // =======================================================
 
 const { Pool } = require("pg");
@@ -12,7 +12,7 @@ const pool = new Pool({
 });
 
 // =======================================================
-// 🧱 AUTO DB CHECK (creates missing columns + audit log)
+// 🧱 DB STRUCTURE CHECK
 // =======================================================
 async function ensureDatabaseStructure(client) {
   try {
@@ -57,6 +57,16 @@ const SCIENTIFIC_RANGES = {
 };
 
 // =======================================================
+// ⚖️ WEIGHT MAP (importance of each macro)
+// =======================================================
+const WEIGHT_MAP = {
+  kcal: 0.8,
+  protein: 1.0,
+  fat: 0.9,
+  carbs: 0.95,
+};
+
+// =======================================================
 // 🧠 CATEGORY DETECTION
 // =======================================================
 function detectCategory(name) {
@@ -76,7 +86,7 @@ function detectCategory(name) {
 }
 
 // =======================================================
-// 📊 ACCURACY CALCULATION
+// 📊 ACCURACY CALCULATION (with weighting)
 // =======================================================
 function getAccuracy(value, [min, max]) {
   if (value == null || isNaN(value)) return 0;
@@ -87,17 +97,26 @@ function getAccuracy(value, [min, max]) {
 }
 
 // =======================================================
+// 🔁 AUTO RESCALE FOR OUTLIERS
+// =======================================================
+function autoRescale(food) {
+  const kcalFromMacros = food.protein * 4 + food.carbs * 4 + food.fat * 9;
+  if (Math.abs(kcalFromMacros - food.kcal) > 100) {
+    food.kcal = Number(kcalFromMacros.toFixed(1));
+  }
+  return food;
+}
+
+// =======================================================
 // 🧾 MAIN ENGINE
 // =======================================================
 const scientificCalibrate = async (req, res) => {
-  console.log("🧬 Running full scientific calibration across all foods...");
+  console.log("🧬 Running FitAI 4.9.2 – full scientific calibration...");
   const client = await pool.connect();
 
   try {
-    // ✅ Step 1: Ensure DB structure
     await ensureDatabaseStructure(client);
 
-    // ✅ Step 2: Load all foods
     const allFoods = await client.query("SELECT * FROM foods ORDER BY id ASC");
     const total = allFoods.rows.length;
 
@@ -105,24 +124,26 @@ const scientificCalibrate = async (req, res) => {
     let totalAccuracy = 0;
     let outliers = 0;
 
-    // ✅ Step 3: Iterate & evaluate
-    for (const food of allFoods.rows) {
+    for (let food of allFoods.rows) {
       const category = detectCategory(food.name_en || food.name_cz || "");
       const ranges = SCIENTIFIC_RANGES[category];
       if (!ranges) continue;
 
-      const kcalAcc = getAccuracy(food.kcal, ranges.kcal);
-      const proteinAcc = getAccuracy(food.protein, ranges.protein);
-      const fatAcc = getAccuracy(food.fat, ranges.fat);
-      const carbsAcc = getAccuracy(food.carbs, ranges.carbs);
+      food = autoRescale(food);
+
+      const kcalAcc = getAccuracy(food.kcal, ranges.kcal) * WEIGHT_MAP.kcal;
+      const proteinAcc = getAccuracy(food.protein, ranges.protein) * WEIGHT_MAP.protein;
+      const fatAcc = getAccuracy(food.fat, ranges.fat) * WEIGHT_MAP.fat;
+      const carbsAcc = getAccuracy(food.carbs, ranges.carbs) * WEIGHT_MAP.carbs;
 
       const accuracyScore = Number(
-        ((kcalAcc + proteinAcc + fatAcc + carbsAcc) / 4).toFixed(3)
+        ((kcalAcc + proteinAcc + fatAcc + carbsAcc) /
+          (WEIGHT_MAP.kcal + WEIGHT_MAP.protein + WEIGHT_MAP.fat + WEIGHT_MAP.carbs)
+        ).toFixed(3)
       );
 
       totalAccuracy += accuracyScore;
       calibrated++;
-
       if (accuracyScore < 0.8) outliers++;
 
       await client.query(
@@ -148,17 +169,17 @@ const scientificCalibrate = async (req, res) => {
       );
     }
 
-    // ✅ Step 4: Summary
     const avgAccuracy = calibrated ? totalAccuracy / calibrated : 0;
     const summary = {
       totalFoods: total,
       calibrated,
       outliers,
       averageAccuracy: Number(avgAccuracy.toFixed(3)),
+      message: "Scientific calibration completed successfully",
       date: new Date().toISOString(),
     };
 
-    console.log("✅ Calibration finished:", summary);
+    console.log("✅ Scientific calibration finished:", summary);
     res.json(summary);
   } catch (err) {
     console.error("❌ Scientific calibration error:", err);
@@ -169,6 +190,6 @@ const scientificCalibrate = async (req, res) => {
 };
 
 // =======================================================
-// ✅ EXPORT (CommonJS compatible for ts-node / Express)
+// ✅ EXPORT
 // =======================================================
 module.exports = { scientificCalibrate };

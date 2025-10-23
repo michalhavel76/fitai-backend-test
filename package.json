@@ -8,6 +8,8 @@
     "build": "tsc",
     "prestart": "npm run build",
     "start": "node dist/index.js",
+    "fill42": "node dist/fill42-server.js",
+    "fill42:dev": "ts-node-dev --respawn --transpile-only src/fill42-server.ts",
     "add-updated-at": "ts-node src/addUpdatedAt.ts"
   },
   "dependencies": {
