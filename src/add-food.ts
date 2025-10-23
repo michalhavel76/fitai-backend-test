@@ -1,10 +1,10 @@
 // =======================================================
-// FitAI 5.0.1 – /api/add-food
-// ✅ Uses global Prisma instance (no double init)
+// FitAI 5.0.2 – /api/add-food (Legacy Stable 19.10 version)
+// ✅ Works on Railway – auto connect + auto disconnect
 // =======================================================
 
 import express from "express";
-import { prisma } from "./index"; // 👈 vezmeme existující instanci, ne novou!
+import { PrismaClient } from "@prisma/client";
 
 const router = express.Router();
 
@@ -12,12 +12,15 @@ const router = express.Router();
 // 🍎 POST /api/add-food
 // =======================================================
 router.post("/api/add-food", async (req, res) => {
+  const prisma = new PrismaClient(); // ⚙️ vždy nový klient (Railway-safe)
   try {
     const { name_en, category, kcal, protein, carbs, fat } = req.body;
 
     if (!name_en) {
       return res.status(400).json({ error: "Missing food name" });
     }
+
+    await prisma.$connect(); // ✅ jistota připojení
 
     const food = await prisma.foods.create({
       data: {
@@ -32,7 +35,7 @@ router.post("/api/add-food", async (req, res) => {
       },
     });
 
-    console.log(`✅ Inserted new food → ${food.name_en}`);
+    console.log(`✅ [FitAI] Inserted → ${food.name_en}`);
 
     res.json({
       status: "success",
@@ -45,6 +48,8 @@ router.post("/api/add-food", async (req, res) => {
       status: "error",
       message: err.message || "Internal Server Error",
     });
+  } finally {
+    await prisma.$disconnect(); // 🧹 důležité – zavře DB spojení po každém requestu
   }
 });
 
