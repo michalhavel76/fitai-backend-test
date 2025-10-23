@@ -38,9 +38,9 @@ app.get("/ping", (_, res) => {
 });
 
 // =======================================================
-// 🍎 Add Food endpoint
+// 🍎 Add Food endpoint (⚠️ Mount directly, no extra /api prefix)
 // =======================================================
-app.use("/api", addFoodRoute);
+app.use(addFoodRoute);
 
 // =======================================================
 // 🚀 Start server

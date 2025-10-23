@@ -1,23 +1,36 @@
 // =======================================================
 // FitAI 5.0 – /api/add-food
-// ✅ Insert food to Railway PostgreSQL (no robot mode)
+// ✅ Safe Railway insert + Prisma lazy init + clean logging
 // =======================================================
 
 import express from "express";
 import { PrismaClient } from "@prisma/client";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
-router.post("/add-food", async (req, res) => {
+// ✅ Lazy Prisma init (Railway-safe)
+let prisma: PrismaClient | null = null;
+async function getPrisma() {
+  if (!prisma) {
+    prisma = new PrismaClient();
+    await prisma.$connect();
+  }
+  return prisma;
+}
+
+// =======================================================
+// 🧠 Endpoint: POST /api/add-food
+// =======================================================
+router.post("/api/add-food", async (req, res) => {
   try {
     const { name_en, category, kcal, protein, carbs, fat } = req.body;
-
     if (!name_en) {
       return res.status(400).json({ error: "Missing food name" });
     }
 
-    const food = await prisma.foods.create({
+    const db = await getPrisma();
+
+    const food = await db.foods.create({
       data: {
         name_en,
         name_cz: name_en,
@@ -39,7 +52,10 @@ router.post("/add-food", async (req, res) => {
     });
   } catch (err: any) {
     console.error("❌ Add-food error:", err.message);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({
+      status: "error",
+      message: err.message || "Internal Server Error",
+    });
   }
 });
 
