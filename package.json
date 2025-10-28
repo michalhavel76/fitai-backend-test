@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc && cp src/scientific-correction.js dist/",
+    "build": "tsc && cp src/scientific-correction.js dist/ && cp src/scientific-calibration.js dist/",
     "prestart": "npm run build",
     "start": "node dist/index.js",
     "add-updated-at": "ts-node src/addUpdatedAt.ts"
