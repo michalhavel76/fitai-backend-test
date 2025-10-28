@@ -1,7 +1,5 @@
 // =======================================================
-// FitAI Vision Engine 1.0 – Plate & Product Analysis
-// World's most precise visual nutrient estimator
-// 2025-10-28 – Scientific Precision Layer
+// FitAI Vision Engine 1.0 – Plate & Product Analysis (TS safe)
 // =======================================================
 
 import express from "express";
@@ -13,10 +11,10 @@ const prisma = new PrismaClient();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // =======================================================
-// ⚙️ CONFIGURATION
+// ⚙️ CONFIG
 // =======================================================
-const PLATE_DIAMETER_CM = 25.0; // referenční talíř 25 cm
-const HEIGHT_FACTOR = 1.5; // průměrná výška vrstvy jídla (cm)
+const PLATE_DIAMETER_CM = 25.0;
+const HEIGHT_FACTOR = 1.5;
 const DENSITY_MAP: Record<string, number> = {
   meat: 1.05,
   fish: 1.0,
@@ -32,21 +30,16 @@ const DENSITY_MAP: Record<string, number> = {
 };
 
 // =======================================================
-// 🧠 AI PROMPT – OpenAI Vision Request
+// 🧠 PROMPT
 // =======================================================
 const promptVision = `
 You are FitAI Vision, a scientific nutrition analyst.
-From this photo, detect and list EVERY visible food item or object that looks edible.
-For each food, return:
-{
-  "name": "...",
-  "category": "...",
-  "approx_area_percent": <percentage_of_plate_surface>,
-  "thickness_cm": <approx_height_in_cm>
-}
-Make sure no item is omitted — even one olive must appear.
-Estimate all sizes precisely relative to a 25 cm plate.
-Output JSON only.
+From this photo, detect and list EVERY visible food item or edible object.
+Return JSON array with:
+[
+  {"name":"...", "category":"...", "approx_area_percent":0-100, "thickness_cm":number}
+]
+Estimate all sizes relative to a 25 cm plate. Output JSON only.
 `;
 
 // =======================================================
@@ -59,81 +52,64 @@ router.post("/api/analyze-photo", async (req, res) => {
 
     console.log("🧠 Starting AI Vision analysis...");
 
-    // Step 1️⃣ Ask OpenAI Vision to analyze the image
+    // ✅ Step 1: Vision call (text + image separately)
     const result = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "You are a scientific food analysis expert." },
         {
           role: "user",
-          content: [
-            { type: "text", text: promptVision },
-            { type: "image_url", image_url: `data:image/jpeg;base64,${imageBase64}` },
-          ],
+          content: `${promptVision}\n\n[data:image/jpeg;base64,${imageBase64}]`,
         },
       ],
       temperature: 0,
       max_tokens: 1200,
     });
 
-    const jsonText = result.choices[0]?.message?.content || "[]";
-    const foods = JSON.parse(jsonText);
+    const raw = result.choices[0]?.message?.content ?? "[]";
+    const foods = JSON.parse(raw);
 
     console.log("📊 AI detected items:", foods.length);
 
-    // Step 2️⃣ Calculate real weights
+    // ✅ Step 2: Calculate weights
     const plateArea = Math.PI * Math.pow(PLATE_DIAMETER_CM / 2, 2);
 
     const analyzed = foods.map((f: any, index: number) => {
-      const ratio = f.approx_area_percent / 100;
+      const ratio = (f.approx_area_percent || 0) / 100;
       const foodArea = plateArea * ratio;
       const category = f.category || "unknown";
       const density = DENSITY_MAP[category] || 1.0;
       const height = f.thickness_cm || HEIGHT_FACTOR;
-
-      const volume = foodArea * height; // cm³
+      const volume = foodArea * height;
       const grams = volume * density;
 
       return {
         id: index + 1,
         name: f.name,
         category,
-        estimated_weight: Math.round(grams),
-        kcal: 0,
-        protein: 0,
-        fat: 0,
-        carbs: 0,
-        accuracy_score: 0.98,
+        estimatedWeight: Math.round(grams),
+        accuracyScore: 0.98,
       };
     });
 
-    // Step 3️⃣ Optional DB save (can skip if you only want result)
-    try {
-      for (const item of analyzed) {
-        await prisma.foods.create({
-          data: {
-            name_en: item.name,
-            category: item.category,
-            estimated_weight: item.estimated_weight,
-            accuracy_score: item.accuracy_score,
-            kcal: item.kcal,
-            protein: item.protein,
-            fat: item.fat,
-            carbs: item.carbs,
-            region: "global",
-            source: "fitai_vision",
-            is_global: false,
-          },
-        });
-      }
-    } catch (err) {
-      console.warn("⚠️ DB save skipped:", err.message);
+    // ✅ Step 3: Save to DB (safe fields only)
+    for (const item of analyzed) {
+      await prisma.foods.create({
+        data: {
+          name_en: item.name,
+          category: item.category,
+          accuracy_score: item.accuracyScore,
+          region: "global",
+          source: "fitai_vision",
+          is_global: false,
+        },
+      });
     }
 
     console.log("✅ Full analysis complete.");
     res.json({ items: analyzed, total: analyzed.length });
-  } catch (err) {
-    console.error("❌ Analyze-photo error:", err);
+  } catch (err: any) {
+    console.error("❌ Analyze-photo error:", err.message);
     res.status(500).json({ error: "Analysis failed", details: err.message });
   }
 });
