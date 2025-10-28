@@ -1,7 +1,7 @@
 // =======================================================
-// FitAI 4.8 – Scientific Calibration Engine
-// Global Food Normalization & Accuracy Framework
-// Full Production Version – 2025-10-19
+// FitAI 4.9.1 – Scientific Calibration + PlateWeight Engine
+// Global Food Normalization & Gram Estimation
+// Full Production Version – 2025-10-28
 // =======================================================
 
 const { Pool } = require("pg");
@@ -20,6 +20,10 @@ async function ensureDatabaseStructure(client) {
       ALTER TABLE foods 
       ADD COLUMN IF NOT EXISTS category TEXT,
       ADD COLUMN IF NOT EXISTS accuracy_score FLOAT DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS estimated_weight FLOAT DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS density FLOAT DEFAULT 1.0,
+      ADD COLUMN IF NOT EXISTS pixel_size FLOAT DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS plate_pixels FLOAT DEFAULT 100000,
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
     `);
 
@@ -71,7 +75,7 @@ function detectCategory(name) {
   if (/(cake|cookie|sugar|sweet|dessert|chocolate)/.test(n)) return "sweet";
   if (/(juice|cola|soda|water|tea|coffee|drink)/.test(n)) return "drink";
   if (/(ketchup|mayo|sauce|dressing|mustard)/.test(n)) return "sauce";
-  if (/(vegetable|carrot|tomato|broccoli|onion|pepper|spinach)/.test(n)) return "vegetable";
+  if (/(vegetable|carrot|tomato|broccoli|onion|pepper|spinach|lettuce)/.test(n)) return "vegetable";
   return "unknown";
 }
 
@@ -87,6 +91,25 @@ function getAccuracy(value, [min, max]) {
 }
 
 // =======================================================
+// ⚖️ WEIGHT ESTIMATION (from pixel size + density)
+// =======================================================
+function estimateWeight(pixels, platePixels, category) {
+  if (!pixels || !platePixels) return 0;
+  const ratio = pixels / platePixels; // poměr ploch
+  const plateArea = Math.PI * Math.pow(12.5, 2); // plocha 25 cm talíře (cm²)
+  const foodArea = plateArea * ratio;
+  const densityMap = {
+    meat: 1.05, fish: 1.0, dairy: 0.95, vegetable: 0.3, fruit: 0.6,
+    starch: 0.8, "bread/cereal": 0.55, "fat/oil": 0.9, sweet: 0.75, sauce: 0.7
+  };
+  const density = densityMap[category] || 1.0;
+  const heightFactor = 1.5; // cm – průměrná výška vrstvy jídla
+  const volume = foodArea * heightFactor;
+  const grams = volume * density;
+  return Math.round(grams);
+}
+
+// =======================================================
 // 🧾 MAIN ENGINE
 // =======================================================
 const scientificCalibrate = async (req, res) => {
@@ -94,10 +117,7 @@ const scientificCalibrate = async (req, res) => {
   const client = await pool.connect();
 
   try {
-    // ✅ Step 1: Ensure DB structure
     await ensureDatabaseStructure(client);
-
-    // ✅ Step 2: Load all foods
     const allFoods = await client.query("SELECT * FROM foods ORDER BY id ASC");
     const total = allFoods.rows.length;
 
@@ -105,7 +125,6 @@ const scientificCalibrate = async (req, res) => {
     let totalAccuracy = 0;
     let outliers = 0;
 
-    // ✅ Step 3: Iterate & evaluate
     for (const food of allFoods.rows) {
       const category = detectCategory(food.name_en || food.name_cz || "");
       const ranges = SCIENTIFIC_RANGES[category];
@@ -115,19 +134,25 @@ const scientificCalibrate = async (req, res) => {
       const proteinAcc = getAccuracy(food.protein, ranges.protein);
       const fatAcc = getAccuracy(food.fat, ranges.fat);
       const carbsAcc = getAccuracy(food.carbs, ranges.carbs);
-
       const accuracyScore = Number(
         ((kcalAcc + proteinAcc + fatAcc + carbsAcc) / 4).toFixed(3)
       );
 
+      const estimatedWeight = estimateWeight(
+        food.pixel_size || 0,
+        food.plate_pixels || 100000,
+        category
+      );
+
       totalAccuracy += accuracyScore;
       calibrated++;
-
       if (accuracyScore < 0.8) outliers++;
 
       await client.query(
-        `UPDATE foods SET category=$1, accuracy_score=$2, updated_at=NOW() WHERE id=$3`,
-        [category, accuracyScore, food.id]
+        `UPDATE foods 
+         SET category=$1, accuracy_score=$2, estimated_weight=$3, density=$4, updated_at=NOW() 
+         WHERE id=$5`,
+        [category, accuracyScore, estimatedWeight, 1.0, food.id]
       );
 
       await client.query(
@@ -139,6 +164,7 @@ const scientificCalibrate = async (req, res) => {
           JSON.stringify({
             category,
             accuracyScore,
+            estimatedWeight,
             kcal: food.kcal,
             protein: food.protein,
             fat: food.fat,
@@ -148,7 +174,6 @@ const scientificCalibrate = async (req, res) => {
       );
     }
 
-    // ✅ Step 4: Summary
     const avgAccuracy = calibrated ? totalAccuracy / calibrated : 0;
     const summary = {
       totalFoods: total,
@@ -169,6 +194,6 @@ const scientificCalibrate = async (req, res) => {
 };
 
 // =======================================================
-// ✅ EXPORT (CommonJS compatible for ts-node / Express)
+// ✅ EXPORT
 // =======================================================
 module.exports = { scientificCalibrate };
