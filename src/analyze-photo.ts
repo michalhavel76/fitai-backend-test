@@ -71,12 +71,9 @@ router.post("/api/analyze-photo", async (req, res) => {
       messages: [
         { role: "system", content: "You are a scientific food and nutrition analysis expert." },
         {
-          role: "user",
-          content: [
-            { type: "text", text: promptVision },
-            { type: "image_url", image_url: `data:image/jpeg;base64,${imageBase64}` },
-          ],
-        },
+  role: "user",
+  content: `${promptVision}\n\nIMAGE:\ndata:image/jpeg;base64,${imageBase64}`,
+},
       ],
       temperature: 0,
       max_tokens: 1500,
