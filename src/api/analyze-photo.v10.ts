@@ -1,6 +1,7 @@
 // =======================================================
 // FitAI Vision Engine 10.0 – Base Build (Railway Safe)
 // Phase 1: Vision detection + physical weight estimation
+// Compatible with OpenAI SDK v4.x
 // =======================================================
 
 import express from "express";
@@ -16,17 +17,17 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // =======================================================
 const nutrientDensity: Record<string, number> = {
   meat: 1.05,
-  fish: 1.00,
+  fish: 1.0,
   dairy: 0.95,
-  vegetable: 0.30,
-  fruit: 0.60,
-  starch: 0.80,
+  vegetable: 0.3,
+  fruit: 0.6,
+  starch: 0.8,
   "bread/cereal": 0.55,
-  "fat/oil": 0.90,
+  "fat/oil": 0.9,
   sweet: 0.75,
-  sauce: 0.70,
-  drink: 1.00,
-  unknown: 1.00,
+  sauce: 0.7,
+  drink: 1.0,
+  unknown: 1.0,
 };
 
 // =======================================================
@@ -80,21 +81,20 @@ router.post("/api/analyze-photo-v10", async (req, res) => {
         { role: "system", content: "You are a scientific AI vision expert." },
         {
           role: "user",
-          content: [
-            { type: "text", text: promptVision },
-            { type: "image_url", image_url: `data:image/jpeg;base64,${imageBase64}` },
-          ],
+          // Compatible input format for OpenAI SDK v4.x
+          content: `${promptVision}\n\nIMAGE:\ndata:image/jpeg;base64,${imageBase64}`,
         },
       ],
       temperature: 0,
       max_tokens: 1500,
     });
 
+    // 🔹 Step 2: Parse Vision output
     const rawOutput = result.choices?.[0]?.message?.content || "[]";
     const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
     const foodsRaw = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
 
-    // 🔹 Step 2: Physical weight estimation
+    // 🔹 Step 3: Physical weight estimation
     const foods = foodsRaw.map((f: any) => {
       const weight_g = estimateWeight(Number(f.volume_cm3) || 0, f.category || "unknown");
       return {
@@ -106,11 +106,12 @@ router.post("/api/analyze-photo-v10", async (req, res) => {
       };
     });
 
-    // 🔹 Step 3: Totals
+    // 🔹 Step 4: Totals
     const totalWeight = foods.reduce((sum: number, f: any) => sum + f.weight_g, 0);
-    const avgConfidence = foods.reduce((s: number, f: any) => s + f.confidence, 0) / (foods.length || 1);
+    const avgConfidence =
+      foods.reduce((s: number, f: any) => s + f.confidence, 0) / (foods.length || 1);
 
-    // 🔹 Step 4: Response
+    // 🔹 Step 5: Response
     res.json({
       success: true,
       version: "10.0-phase-1",
@@ -121,7 +122,9 @@ router.post("/api/analyze-photo-v10", async (req, res) => {
       photo_id: "fitai_vision_" + Date.now(),
     });
 
-    console.log(`✅ Vision 10.0 analyzed ${foods.length} items, total ≈ ${totalWeight} g`);
+    console.log(
+      `✅ Vision 10.0 analyzed ${foods.length} items, total ≈ ${totalWeight} g`
+    );
   } catch (err: any) {
     console.error("❌ Vision 10.0 Error:", err.message);
     res.status(500).json({ error: "Vision 10.0 failed", details: err.message });
