@@ -1,7 +1,7 @@
 // =======================================================
 // FitAI Backend 4.9 – Scientific Calibration System
 // Global Food Normalization & Accuracy Framework
-// Full Safe Build – 2025-10-19
+// Full Safe Build – 2025-10-28 (no scientific-correction)
 // =======================================================
 
 import express from "express";
@@ -23,9 +23,8 @@ import verifySourceRoute from "./verify-source";
 import normalizeRoute from "./normalize-engine";
 import normalizeSmart from "./normalize-engine";
 import verifyAccuracy from "./verify-accuracy";
+import analyzePhotoV10Route from "./api/analyze-photo.v10";
 
-// @ts-ignore – JS module (no declaration)
-import scientificCorrection from "./scientific-correction";
 // @ts-ignore – JS module (no declaration)
 import { scientificCalibrate } from "./scientific-calibration";
 
@@ -87,12 +86,11 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         },
         {
           role: "user",
-          content: [
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
-          ],
+          content: `${"data:image/jpeg;base64,"}${b64}`,
         },
       ],
-      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 800,
     });
 
     const parsed = JSON.parse(visionResp.choices[0].message.content || "{}");
@@ -187,76 +185,6 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 });
 
 // =======================================================
-// 🧬 USDA SYNC (Enhanced Search + 10 results fallback)
-// =======================================================
-app.post("/usda-sync", async (req, res) => {
-  try {
-    const { food } = req.body;
-    if (!food) return res.status(400).json({ error: "Missing food name" });
-
-    const USDA_API_KEY = "CoapVie1RnpUCrfGNfbeoDyG0Ut3DNktWOyLnUC0";
-    const USDA_SEARCH_URL = `https://api.nal.usda.gov/fdc/v1/foods/search`;
-
-    console.log("🔎 Searching USDA for:", food);
-
-    const searchRes = await axios.get(USDA_SEARCH_URL, {
-      params: { api_key: USDA_API_KEY, query: food, pageSize: 10 },
-    });
-
-    const results = searchRes.data.foods || [];
-    if (results.length === 0)
-      return res.status(404).json({ error: `No match found in USDA for "${food}"` });
-
-    const fdcId = results[0].fdcId;
-    console.log("✅ Found USDA entry:", results[0].description);
-
-    const foodRes = await axios.get(
-      `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_API_KEY}`
-    );
-
-    const foodData = foodRes.data;
-    const nutrients: Record<string, number> = {};
-
-    foodData.foodNutrients?.forEach((n: any) => {
-      const name = n.nutrient?.name?.toLowerCase() || "";
-      const val = n.amount || 0;
-      if (name.includes("vitamin a")) nutrients.vitamin_a = val;
-      if (name.includes("vitamin c")) nutrients.vitamin_c = val;
-      if (name.includes("vitamin d")) nutrients.vitamin_d = val;
-      if (name.includes("vitamin e")) nutrients.vitamin_e = val;
-      if (name.includes("vitamin k")) nutrients.vitamin_k = val;
-      if (name.includes("calcium")) nutrients.calcium = val;
-      if (name.includes("iron")) nutrients.iron = val;
-      if (name.includes("zinc")) nutrients.zinc = val;
-      if (name.includes("magnesium")) nutrients.magnesium = val;
-      if (name.includes("phosphorus")) nutrients.phosphorus = val;
-      if (name.includes("potassium")) nutrients.potassium = val;
-      if (name.includes("copper")) nutrients.copper = val;
-      if (name.includes("manganese")) nutrients.manganese = val;
-      if (name.includes("selenium")) nutrients.selenium = val;
-      if (name.includes("sodium")) nutrients.sodium = val;
-      if (name.includes("cholesterol")) nutrients.cholesterol = val;
-      if (name.includes("monounsaturated")) nutrients.monounsaturated_fat = val;
-      if (name.includes("polyunsaturated")) nutrients.polyunsaturated_fat = val;
-      if (name.includes("trans")) nutrients.trans_fat = val;
-      if (name.includes("water")) nutrients.water = val;
-    });
-
-    await pool.query(
-      `INSERT INTO foods (name_en, name_cz, region, source, is_global, accuracy_score, created_at)
-       VALUES ($1,$1,'global','USDA',true,1.0,NOW())
-       ON CONFLICT (name_en) DO UPDATE SET region='global', source='USDA', updated_at=NOW()`,
-      [food.toLowerCase()]
-    );
-
-    res.json({ success: true, nutrients });
-  } catch (err: any) {
-    console.error("❌ USDA Sync Error:", err.message);
-    res.status(500).json({ error: "USDA sync failed" });
-  }
-});
-
-// =======================================================
 // 🧬 SCIENTIFIC CALIBRATION (NEW IN 4.8)
 // =======================================================
 app.post("/api/scientific-calibrate", scientificCalibrate);
@@ -273,7 +201,7 @@ app.use("/", verifySourceRoute);
 app.use("/", normalizeRoute);
 app.use("/", normalizeSmart);
 app.use("/", verifyAccuracy);
-app.use("/", scientificCorrection);
+app.use(analyzePhotoV10Route);
 
 // =======================================================
 // 🚀 SERVER START
