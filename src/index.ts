@@ -30,36 +30,46 @@ const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 app.get("/ping", (_, res) => res.send("pong"));
 app.get("/hello", (_, res) => res.send("Hello from FitAI backend!"));
 
-// 📸 ANALÝZA JÍDLA
+// ------------------------------------------------------------
+// 📸 1) ANALÝZA JÍDLA – Vision → ingredience → makra
+// ------------------------------------------------------------
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file)
-      return res.status(400).json({ error: "No image uploaded" });
+    if (!req.file) return res.status(400).json({ error: "No image uploaded" });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
 
-    // Vision analýza
+    // 1️⃣ Vision: extrakce ingrediencí
     const visionResp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content:
-            "You are a nutrition expert. Return JSON with an 'ingredients' array listing foods visible on the plate."
+          content: `
+            You are a strict nutrition vision expert.
+            ALWAYS return JSON exactly like this:
+            {"ingredients":["rice","chicken","salad"]}
+            Do not add anything else.
+            Do not include explanations.
+            Detect only foods.
+          `,
         },
         {
           role: "user",
           content: [
             {
               type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` }
-            }
-          ]
-        }
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+            },
+          ],
+        },
       ],
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
     });
 
+    console.log("VISION RAW:", visionResp.choices[0].message.content);
+
+    // 2️⃣ Parse Vision JSON
     let parsed: any = {};
     try {
       parsed = JSON.parse(visionResp.choices[0].message.content || "{}");
@@ -67,10 +77,41 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       parsed = { ingredients: [] };
     }
 
-    const ingredients: string[] = parsed.ingredients || [];
+    let ingredients: string[] = parsed.ingredients || [];
+
+    // 3️⃣ Pokud Vision nic nenašlo → fallback textová analýza
+    if (ingredients.length === 0) {
+      console.log("⚠️ Vision returned empty ingredients. Using fallback.");
+
+      const fallback = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Extract foods from the description. Return JSON: {\"ingredients\":[...]}",
+          },
+          {
+            role: "user",
+            content: `Describe ingredients on the plate. Image (base64 omitted).`,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      try {
+        const fb = JSON.parse(fallback.choices[0].message.content || "{}");
+        ingredients = fb.ingredients || [];
+      } catch {
+        ingredients = [];
+      }
+    }
+
+    console.log("INGREDIENTS:", ingredients);
+
+    // 4️⃣ Nutritionix dotazy
     const items: any[] = [];
 
-    // Nutritionix dotazy
     for (const ing of ingredients) {
       try {
         const nutriResp = await axios.post(
@@ -80,8 +121,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
             headers: {
               "x-app-id": NUTRITIONIX_APP_ID!,
               "x-app-key": NUTRITIONIX_API_KEY!,
-              "Content-Type": "application/json"
-            }
+              "Content-Type": "application/json",
+            },
           }
         );
 
@@ -93,14 +134,14 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
           calories: f.nf_calories || 0,
           protein: f.nf_protein || 0,
           carbs: f.nf_total_carbohydrate || 0,
-          fat: f.nf_total_fat || 0
+          fat: f.nf_total_fat || 0,
         });
       } catch (err) {
         console.error("Nutritionix error:", (err as any).message);
       }
     }
 
-    // Suma makroživin
+    // 5️⃣ Součet makroživin
     const totals = items.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
@@ -116,27 +157,27 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       calories: Math.round(totals.calories),
       protein: Math.round(totals.protein),
       carbs: Math.round(totals.carbs),
-      fat: Math.round(totals.fat)
+      fat: Math.round(totals.fat),
     };
 
     return res.json({ items, totals: roundedTotals });
   } catch (err) {
     console.error("Analyze error:", (err as any).message);
-
     return res.json({
       items: [],
-      totals: { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      totals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
     });
   }
 });
 
-// 🤖 VTIPNÁ HLÁŠKA
+// ------------------------------------------------------------
+// 🤖 2) VTIPNÁ HLÁŠKA – Vision → message
+// ------------------------------------------------------------
 app.post("/funny-message", upload.single("image"), async (req, res) => {
   try {
     const userName = req.body.userName || "kámo";
 
-    if (!req.file)
-      return res.json({ message: "Analyzuju tvoje jídlo... 😎" });
+    if (!req.file) return res.json({ message: "Analyzuju tvoje jídlo... 😎" });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
 
@@ -146,11 +187,10 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
         {
           role: "system",
           content: `
-            Jsi osobní kouč a parťák.
-            Odpovídej česky, do 25 slov.
-            Buď motivační, sportovní, free-life a vtipný.
-            Střídej emoji.
-          `
+            Jsi motivační fit-kouč.
+            Odpovídej česky, krátce, s humorem.
+            Max 20 slov. Střídej emoji.
+          `,
         },
         {
           role: "user",
@@ -158,12 +198,12 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
             { type: "text", text: `Co říkáš na tohle jídlo, ${userName}?` },
             {
               type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` }
-            }
-          ]
-        }
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+            },
+          ],
+        },
       ],
-      max_tokens: 60
+      max_tokens: 60,
     });
 
     const msg =
@@ -177,7 +217,9 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🔢 PŘEPOČET POTRAVINY
+// ------------------------------------------------------------
+// 🔢 3) Přepočet jedné potraviny
+// ------------------------------------------------------------
 app.post("/calculate-food", async (req, res) => {
   try {
     const { food, grams } = req.body;
@@ -185,7 +227,7 @@ app.post("/calculate-food", async (req, res) => {
     if (!food || !grams)
       return res.status(400).json({
         success: false,
-        error: "Chybí název nebo množství (food, grams)"
+        error: "Chybí název nebo množství (food, grams)",
       });
 
     const response = await axios.post(
@@ -195,8 +237,8 @@ app.post("/calculate-food", async (req, res) => {
         headers: {
           "x-app-id": NUTRITIONIX_APP_ID!,
           "x-app-key": NUTRITIONIX_API_KEY!,
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       }
     );
 
@@ -204,14 +246,14 @@ app.post("/calculate-food", async (req, res) => {
     if (!item)
       return res.status(404).json({
         success: false,
-        error: "Potravina nebyla nalezena"
+        error: "Potravina nebyla nalezena",
       });
 
     const result = {
       calories: Math.round(item.nf_calories || 0),
       protein: Math.round(item.nf_protein || 0),
       carbs: Math.round(item.nf_total_carbohydrate || 0),
-      fat: Math.round(item.nf_total_fat || 0)
+      fat: Math.round(item.nf_total_fat || 0),
     };
 
     return res.json({
@@ -220,18 +262,20 @@ app.post("/calculate-food", async (req, res) => {
       name: item.food_name,
       serving_qty: item.serving_qty,
       serving_unit: item.serving_unit,
-      photo: item.photo?.thumb || null
+      photo: item.photo?.thumb || null,
     });
   } catch (err) {
     console.error("❌ Chyba /calculate-food:", (err as any).message);
     res.status(500).json({
       success: false,
-      error: "Nepodařilo se spočítat hodnoty"
+      error: "Nepodařilo se spočítat hodnoty",
     });
   }
 });
 
-// 🔎 VYHLEDÁVÁNÍ
+// ------------------------------------------------------------
+// 🔎 4) Hledání potravin (autocomplete)
+// ------------------------------------------------------------
 app.post("/search-food", async (req, res) => {
   try {
     const { query } = req.body;
@@ -239,7 +283,7 @@ app.post("/search-food", async (req, res) => {
     if (!query)
       return res.status(400).json({
         success: false,
-        error: "Query required"
+        error: "Query required",
       });
 
     const response = await axios.get(
@@ -247,20 +291,20 @@ app.post("/search-food", async (req, res) => {
       {
         headers: {
           "x-app-id": NUTRITIONIX_APP_ID!,
-          "x-app-key": NUTRITIONIX_API_KEY!
-        }
+          "x-app-key": NUTRITIONIX_API_KEY!,
+        },
       }
     );
 
     const results = [
       ...response.data.common,
-      ...response.data.branded
+      ...response.data.branded,
     ]
       .slice(0, 10)
       .map((item: any) => ({
         name: item.food_name,
         brand: item.brand_name || "",
-        photo: item.photo?.thumb || ""
+        photo: item.photo?.thumb || "",
       }));
 
     res.json({ success: true, results });
@@ -270,7 +314,9 @@ app.post("/search-food", async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------
 // 🚀 Start serveru
+// ------------------------------------------------------------
 app.listen(port, () => {
   console.log(`✅ FitAI backend running at http://localhost:${port}`);
 });
