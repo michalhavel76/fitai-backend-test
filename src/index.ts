@@ -14,70 +14,53 @@ const port = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// Multer – ukládání fotek
 const upload = multer({ dest: "uploads/" });
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ✅ Nutritionix API keys
+// OpenAI klient
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Nutritionix klíče
 const NUTRITIONIX_APP_ID = process.env.NUTRITIONIX_APP_ID;
 const NUTRITIONIX_API_KEY = process.env.NUTRITIONIX_API_KEY;
 
-// --- TEST endpointy
+// TEST endpointy
 app.get("/ping", (_, res) => res.send("pong"));
 app.get("/hello", (_, res) => res.send("Hello from FitAI backend!"));
 
-// 📸 1️⃣ ANALÝZA JÍDLA (foto → ingredience → makra)
+// 📸 ANALÝZA JÍDLA
 app.post("/analyze-plate", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No image uploaded" });
+    if (!req.file)
+      return res.status(400).json({ error: "No image uploaded" });
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
 
-    // 🔍 GPT-4 Vision: rozpoznání ingrediencí (opraveno)
-const visionResp = await openai.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages: [
-    {
-      role: "system",
-      content: `
-        You are an expert in food recognition.
-        ALWAYS return valid JSON exactly in this format:
-
+    // Vision analýza
+    const visionResp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
         {
-          "ingredients": ["item1", "item2", "item3"]
-        }
-
-        If the image is unclear, guess typical ingredients for the dish.
-      `,
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "image_url",
-          image_url: { url: `data:image/jpeg;base64,${b64}` },
+          role: "system",
+          content:
+            "You are a nutrition expert. Return JSON with an 'ingredients' array listing foods visible on the plate."
         },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${b64}` }
+            }
+          ]
+        }
       ],
-    },
-  ],
-  response_format: { type: "json_object" },
-});
+      response_format: { type: "json_object" }
+    });
 
-// 🛑 Fallback pro případ, že GPT nevrátí nic
-let ingredients = [];
-
-try {
-  const parsed = JSON.parse(visionResp.choices[0].message.content);
-  ingredients = parsed.ingredients || [];
-} catch (e) {
-  ingredients = [];
-}
-
-// Pokud je pole prázdné → vynutit 1 položku, aby to nespadlo
-if (ingredients.length === 0) {
-  ingredients = ["food"];
-}
-
-    let parsed;
+    let parsed: any = {};
     try {
       parsed = JSON.parse(visionResp.choices[0].message.content || "{}");
     } catch {
@@ -87,7 +70,7 @@ if (ingredients.length === 0) {
     const ingredients: string[] = parsed.ingredients || [];
     const items: any[] = [];
 
-    // 🥗 Nutritionix dotazy
+    // Nutritionix dotazy
     for (const ing of ingredients) {
       try {
         const nutriResp = await axios.post(
@@ -95,27 +78,29 @@ if (ingredients.length === 0) {
           { query: ing },
           {
             headers: {
-              "x-app-id": NUTRITIONIX_APP_ID,
-              "x-app-key": NUTRITIONIX_API_KEY,
-              "Content-Type": "application/json",
-            },
+              "x-app-id": NUTRITIONIX_APP_ID!,
+              "x-app-key": NUTRITIONIX_API_KEY!,
+              "Content-Type": "application/json"
+            }
           }
         );
 
         const f = nutriResp.data.foods[0];
+        if (!f) continue;
+
         items.push({
           name: f.food_name,
-          calories: f.nf_calories,
-          protein: f.nf_protein,
-          carbs: f.nf_total_carbohydrate,
-          fat: f.nf_total_fat,
+          calories: f.nf_calories || 0,
+          protein: f.nf_protein || 0,
+          carbs: f.nf_total_carbohydrate || 0,
+          fat: f.nf_total_fat || 0
         });
       } catch (err) {
         console.error("Nutritionix error:", (err as any).message);
       }
     }
 
-    // 📊 Součet makroživin + zaokrouhlení
+    // Suma makroživin
     const totals = items.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
@@ -131,23 +116,25 @@ if (ingredients.length === 0) {
       calories: Math.round(totals.calories),
       protein: Math.round(totals.protein),
       carbs: Math.round(totals.carbs),
-      fat: Math.round(totals.fat),
+      fat: Math.round(totals.fat)
     };
 
-    res.json({ items, totals: roundedTotals });
+    return res.json({ items, totals: roundedTotals });
   } catch (err) {
     console.error("Analyze error:", (err as any).message);
-    res.json({
+
+    return res.json({
       items: [],
-      totals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      totals: { calories: 0, protein: 0, carbs: 0, fat: 0 }
     });
   }
 });
 
-// 🤖 2️⃣ VTIPNÁ HLÁŠKA (foto → GPT hláška)
+// 🤖 VTIPNÁ HLÁŠKA
 app.post("/funny-message", upload.single("image"), async (req, res) => {
   try {
     const userName = req.body.userName || "kámo";
+
     if (!req.file)
       return res.json({ message: "Analyzuju tvoje jídlo... 😎" });
 
@@ -159,11 +146,11 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
         {
           role: "system",
           content: `
-          Jsi osobní kouč a parťák.
-          Odpovídej česky, do 25 slov.
-          Buď motivační, sportovní, free-life, vtipný.
-          Občas pochval, občas vyhecuj. Používej emoji, ale ne stále stejné.
-        `,
+            Jsi osobní kouč a parťák.
+            Odpovídej česky, do 25 slov.
+            Buď motivační, sportovní, free-life a vtipný.
+            Střídej emoji.
+          `
         },
         {
           role: "user",
@@ -171,12 +158,12 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
             { type: "text", text: `Co říkáš na tohle jídlo, ${userName}?` },
             {
               type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` },
-            },
-          ],
-        },
+              image_url: { url: `data:image/jpeg;base64,${b64}` }
+            }
+          ]
+        }
       ],
-      max_tokens: 60,
+      max_tokens: 60
     });
 
     const msg =
@@ -190,90 +177,90 @@ app.post("/funny-message", upload.single("image"), async (req, res) => {
   }
 });
 
-// 🍎 3️⃣ PŘEPOČET JEDNÉ POTRAVINY
+// 🔢 PŘEPOČET POTRAVINY
 app.post("/calculate-food", async (req, res) => {
   try {
     const { food, grams } = req.body;
 
-    if (!food || !grams) {
+    if (!food || !grams)
       return res.status(400).json({
         success: false,
-        error: "Chybí název nebo množství (food, grams)",
+        error: "Chybí název nebo množství (food, grams)"
       });
-    }
 
     const response = await axios.post(
       "https://trackapi.nutritionix.com/v2/natural/nutrients",
       { query: `${grams}g ${food}` },
       {
         headers: {
-          "x-app-id": NUTRITIONIX_APP_ID,
-          "x-app-key": NUTRITIONIX_API_KEY,
-          "Content-Type": "application/json",
-        },
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!,
+          "Content-Type": "application/json"
+        }
       }
     );
 
     const item = response.data.foods[0];
-
-    if (!item) {
+    if (!item)
       return res.status(404).json({
         success: false,
-        error: "Potravina nebyla nalezena",
+        error: "Potravina nebyla nalezena"
       });
-    }
 
     const result = {
       calories: Math.round(item.nf_calories || 0),
       protein: Math.round(item.nf_protein || 0),
       carbs: Math.round(item.nf_total_carbohydrate || 0),
-      fat: Math.round(item.nf_total_fat || 0),
+      fat: Math.round(item.nf_total_fat || 0)
     };
 
-    res.json({
+    return res.json({
       success: true,
       result,
       name: item.food_name,
       serving_qty: item.serving_qty,
       serving_unit: item.serving_unit,
-      photo: item.photo?.thumb || null,
+      photo: item.photo?.thumb || null
     });
   } catch (err) {
     console.error("❌ Chyba /calculate-food:", (err as any).message);
     res.status(500).json({
       success: false,
-      error: "Nepodařilo se spočítat hodnoty pro danou potravinu",
+      error: "Nepodařilo se spočítat hodnoty"
     });
   }
 });
 
-// 🔎 4️⃣ VYHLEDÁVÁNÍ POTRAVIN (autocomplete)
+// 🔎 VYHLEDÁVÁNÍ
 app.post("/search-food", async (req, res) => {
   try {
     const { query } = req.body;
-    if (!query || query.length < 1) {
-      return res.status(400).json({ success: false, error: "Query required" });
-    }
+
+    if (!query)
+      return res.status(400).json({
+        success: false,
+        error: "Query required"
+      });
 
     const response = await axios.get(
       `https://trackapi.nutritionix.com/v2/search/instant?query=${query}`,
       {
         headers: {
-          "x-app-id": NUTRITIONIX_APP_ID,
-          "x-app-key": NUTRITIONIX_API_KEY,
-        },
+          "x-app-id": NUTRITIONIX_APP_ID!,
+          "x-app-key": NUTRITIONIX_API_KEY!
+        }
       }
     );
 
     const results = [
       ...response.data.common,
-      ...response.data.branded,
+      ...response.data.branded
     ]
       .slice(0, 10)
-      .map((item) => ({
+      .map((item: any) => ({
         name: item.food_name,
         brand: item.brand_name || "",
-        photo: item.photo?.thumb || "",
+        photo: item.photo?.thumb || ""
       }));
 
     res.json({ success: true, results });
