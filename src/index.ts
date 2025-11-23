@@ -32,27 +32,50 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 
     const b64 = fs.readFileSync(req.file.path, { encoding: "base64" });
 
-    // 🔍 GPT-4 Vision: rozpoznání ingrediencí
-    const visionResp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
+    // 🔍 GPT-4 Vision: rozpoznání ingrediencí (opraveno)
+const visionResp = await openai.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [
+    {
+      role: "system",
+      content: `
+        You are an expert in food recognition.
+        ALWAYS return valid JSON exactly in this format:
+
         {
-          role: "system",
-          content:
-            "You are a nutrition expert. Return JSON with an 'ingredients' array listing foods visible on the plate.",
-        },
+          "ingredients": ["item1", "item2", "item3"]
+        }
+
+        If the image is unclear, guess typical ingredients for the dish.
+      `,
+    },
+    {
+      role: "user",
+      content: [
         {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` },
-            },
-          ],
+          type: "image_url",
+          image_url: { url: `data:image/jpeg;base64,${b64}` },
         },
       ],
-      response_format: { type: "json_object" },
-    });
+    },
+  ],
+  response_format: { type: "json_object" },
+});
+
+// 🛑 Fallback pro případ, že GPT nevrátí nic
+let ingredients = [];
+
+try {
+  const parsed = JSON.parse(visionResp.choices[0].message.content);
+  ingredients = parsed.ingredients || [];
+} catch (e) {
+  ingredients = [];
+}
+
+// Pokud je pole prázdné → vynutit 1 položku, aby to nespadlo
+if (ingredients.length === 0) {
+  ingredients = ["food"];
+}
 
     let parsed;
     try {
