@@ -68,17 +68,18 @@ Do not add comments. Translate food as a food item.
   });
 
   // 5️⃣ Parse odpovědi
-  const data = JSON.parse(response.choices[0].message.content || "{}");
+  const raw = response.choices[0].message.content || "{}";
+  const data = JSON.parse(raw);
 
   if (!data.translations) {
     throw new Error("Invalid translation response");
   }
 
-  // 6️⃣ Uložení do databáze – bez duplicit
+  // 6️⃣ Uložení do databáze – upsert = bez duplicit
   let saved = 0;
 
   for (const lang of languages) {
-    const tname =
+    const translatedName =
       lang.code === "en"
         ? englishName
         : data.translations[lang.code] || englishName;
@@ -90,11 +91,11 @@ Do not add comments. Translate food as a food item.
           language_id: lang.id,
         },
       },
-      update: { name: tname },
+      update: { name: translatedName },
       create: {
         food_id: foodId,
         language_id: lang.id,
-        name: tname,
+        name: translatedName,
       },
     });
 
