@@ -320,10 +320,10 @@ app.post("/api/translate-food", async (req, res) => {
 
     const result = await translateFoodName(food_id, english_name);
 
-    return res.json({
-      message: "Translations saved",
-      languages: result.count,
-    });
+res.json({
+  success: true,
+  message: `Translations saved: ${result.saved}`,
+});
   } catch (err) {
     console.error("Translation error:", err);
     res.status(500).json({ error: "Translation failed" });
