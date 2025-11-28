@@ -1,15 +1,14 @@
 // src/translate.ts
 
 import OpenAI from "openai";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../prisma/client";  // ✔ správný import pro Prisma 7
 
-const prisma = new PrismaClient();
-
+// OpenAI klient
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// 1️⃣ Načti jazyky z databáze
+// 1️⃣ Načtení jazyků z databáze
 async function getLanguages() {
   return prisma.languages.findMany({
     orderBy: { id: "asc" },
@@ -20,20 +19,20 @@ async function getLanguages() {
 export async function translateFoodName(foodId: number, englishName: string) {
   const languages = await getLanguages();
 
-  // Seznam jazyků pro API prompt
+  // Seznam jazyků do promptu (bez EN)
   const translationTargets = languages
     .filter((lang) => lang.code !== "en")
     .map((lang) => `${lang.name} (${lang.code})`)
     .join(", ");
 
-  // 3️⃣ Jeden obrovský prompt = všechny jazyky najednou
+  // 3️⃣ Prompt pro hromadný překlad
   const prompt = `
 You are a professional food translation engine.
 Translate the food name "${englishName}" into the following languages:
 
 ${translationTargets}
 
-Return JSON in this structure:
+Return JSON in the following format:
 {
   "translations": {
     "de": "...",
@@ -53,33 +52,34 @@ Return JSON in this structure:
   }
 }
 
-Do not add comments. Translate food as a food item.
+Do NOT add comments or explanations.
+Translate only the food name.
 `;
 
-  // 4️⃣ Pošli do OpenAI najednou
+  // 4️⃣ OpenAI požadavek
   const response = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "Always return clean JSON." },
+      { role: "system", content: "Always return clean JSON only." },
       { role: "user", content: prompt },
     ],
-    response_format: { type: "json_object" },
     temperature: 0,
+    response_format: { type: "json_object" },
   });
 
-  // 5️⃣ Parse odpovědi
+  // 5️⃣ Parse JSON
   const raw = response.choices[0].message.content || "{}";
   const data = JSON.parse(raw);
 
   if (!data.translations) {
-    throw new Error("Invalid translation response");
+    throw new Error("Invalid translation JSON received from OpenAI.");
   }
 
-  // 6️⃣ Uložení do databáze – upsert = bez duplicit
+  // 6️⃣ Uložení překladů do DB přes UPSERT
   let saved = 0;
 
   for (const lang of languages) {
-    const translatedName =
+    const translated =
       lang.code === "en"
         ? englishName
         : data.translations[lang.code] || englishName;
@@ -91,11 +91,11 @@ Do not add comments. Translate food as a food item.
           language_id: lang.id,
         },
       },
-      update: { name: translatedName },
+      update: { name: translated },
       create: {
         food_id: foodId,
         language_id: lang.id,
-        name: translatedName,
+        name: translated,
       },
     });
 
