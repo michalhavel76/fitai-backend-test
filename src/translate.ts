@@ -1,7 +1,9 @@
 // src/translate.ts
 
 import OpenAI from "openai";
-import { prisma } from "./prisma/client";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 // OpenAI klient
 const client = new OpenAI({
