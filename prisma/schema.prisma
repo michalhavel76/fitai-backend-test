@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model foods {
+  id          Int              @id @default(autoincrement())
+  name        String
+  region_id   Int?
+  url         String?
+  created_at  DateTime         @default(now())
+
+  nutrients    food_nutrients[]
+  translations food_translations[]
+  dish_items   regional_dish_items[]   // added
+  audit_logs   food_audit_log[]        // added
+}
+
+model nutrients {
+  id           Int    @id @default(autoincrement())
+  nutrient_key String @unique
+  unit         String
+  description  String?
+
+  food_values  food_nutrients[]
+}
+
+model food_nutrients {
+  id                 Int       @id @default(autoincrement())
+  food_id            Int
+  nutrient_id        Int
+  amount             Float?
+  is_measured        Boolean? @default(false)
+  is_ai_estimated    Boolean? @default(false)
+  calculation_method String?
+  evidence_strength  String?
+
+  foods     foods     @relation(fields: [food_id], references: [id])
+  nutrients nutrients @relation(fields: [nutrient_id], references: [id])
+}
+
+model languages {
+  id    Int    @id @default(autoincrement())
+  code  String @unique
+  name  String
+
+  translations food_translations[]
+}
+
+model food_translations {
+  id          Int      @id @default(autoincrement())
+  food_id     Int
+  language_id Int
+  name        String
+
+  foods     foods     @relation(fields: [food_id], references: [id])
+  languages languages @relation(fields: [language_id], references: [id])
+
+  @@unique([food_id, language_id])
+}
+
+model regions {
+  id    Int    @id @default(autoincrement())
+  name  String
+  dishes regional_dishes[]
+}
+
+model regional_dishes {
+  id        Int    @id @default(autoincrement())
+  region_id Int
+  name      String
+
+  region  regions             @relation(fields: [region_id], references: [id])
+  items   regional_dish_items[]
+}
+
+model regional_dish_items {
+  id      Int @id @default(autoincrement())
+  dish_id Int
+  food_id Int
+
+  dish regional_dishes @relation(fields: [dish_id], references: [id])
+  food foods           @relation(fields: [food_id], references: [id])
+}
+
+model data_sources {
+  id         Int      @id @default(autoincrement())
+  name       String
+  url        String?
+  last_sync  DateTime?
+  auto_sync  Boolean  @default(false)
+}
+
+model food_audit_log {
+  id          Int      @id @default(autoincrement())
+  food_id     Int
+  change_type String?
+  old_value   String?
+  new_value   String?
+  reason      String?
+  timestamp   DateTime @default(now())
+
+  foods foods @relation(fields: [food_id], references: [id])
+}
