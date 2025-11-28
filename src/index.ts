@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import OpenAI from "openai";
 import axios from "axios";
+import { translateFoodName } from "./translate";   // ⭐ NOVÝ IMPORT
 
 dotenv.config();
 
@@ -49,8 +50,8 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
             You are a strict nutrition vision expert.
             ALWAYS return JSON exactly like this:
             {"ingredients":["rice","chicken","salad"]}
+
             Do not add anything else.
-            Do not include explanations.
             Detect only foods.
           `,
         },
@@ -67,9 +68,6 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       response_format: { type: "json_object" },
     });
 
-    console.log("VISION RAW:", visionResp.choices[0].message.content);
-
-    // 2️⃣ Parse Vision JSON
     let parsed: any = {};
     try {
       parsed = JSON.parse(visionResp.choices[0].message.content || "{}");
@@ -79,21 +77,18 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
 
     let ingredients: string[] = parsed.ingredients || [];
 
-    // 3️⃣ Pokud Vision nic nenašlo → fallback textová analýza
+    // Fallback textový popis
     if (ingredients.length === 0) {
-      console.log("⚠️ Vision returned empty ingredients. Using fallback.");
-
       const fallback = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
-            content:
-              "Extract foods from the description. Return JSON: {\"ingredients\":[...]}",
+            content: "Extract foods. Return JSON: {\"ingredients\":[...]}",
           },
           {
             role: "user",
-            content: `Describe ingredients on the plate. Image (base64 omitted).`,
+            content: `Describe foods on the plate.`,
           },
         ],
         response_format: { type: "json_object" },
@@ -106,8 +101,6 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
         ingredients = [];
       }
     }
-
-    console.log("INGREDIENTS:", ingredients);
 
     // 4️⃣ Nutritionix dotazy
     const items: any[] = [];
@@ -141,7 +134,7 @@ app.post("/analyze-plate", upload.single("image"), async (req, res) => {
       }
     }
 
-    // 5️⃣ Součet makroživin
+    // Součet makroživin
     const totals = items.reduce(
       (acc, i) => {
         acc.calories += i.calories || 0;
@@ -311,6 +304,29 @@ app.post("/search-food", async (req, res) => {
   } catch (err) {
     console.error("❌ search-food error:", (err as any).message);
     res.status(500).json({ success: false, error: "Search failed" });
+  }
+});
+
+// ------------------------------------------------------------
+// 🌍 5) AI překlad názvu potraviny do 15 jazyků
+// ------------------------------------------------------------
+app.post("/api/translate-food", async (req, res) => {
+  try {
+    const { food_id, english_name } = req.body;
+
+    if (!food_id || !english_name) {
+      return res.status(400).json({ error: "Missing food_id or english_name" });
+    }
+
+    const result = await translateFoodName(food_id, english_name);
+
+    return res.json({
+      message: "Translations saved",
+      languages: result.count,
+    });
+  } catch (err) {
+    console.error("Translation error:", err);
+    res.status(500).json({ error: "Translation failed" });
   }
 });
 
